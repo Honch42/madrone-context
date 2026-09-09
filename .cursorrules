@@ -1,0 +1,6 @@
+# Mandatory Verification Rule
+Whenever you fix a UI bug, deploy a new web page, or make a change that affects the visual output of the application, you MUST actively verify your success before concluding your turn. 
+
+You must use the Chrome DevTools MCP (`read_browser_page` or equivalent) or another browser automation tool to open the live URL or localhost, inspect the rendered output, and confirm the expected changes are visible. 
+
+Do not rely solely on `curl` or terminal output. If the visual check fails, you must continue troubleshooting. NEVER show the user an untested feature.
