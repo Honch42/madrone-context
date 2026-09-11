@@ -3,19 +3,28 @@ const { execSync } = require('child_process');
 
 function getKeychainPassword(account, service="AntiGravity") {
     try {
-        const result = execSync(`security find-generic-password -s "${service}" -a "${account}" -w`, { encoding: 'utf-8' });
-        return result.trim();
+        const rawResult = execSync(`security find-generic-password -s "${service}" -a "${account}" -w`, { encoding: 'utf-8' }).trim();
+        let result = rawResult;
+        if (/^[0-9a-fA-F]+$/.test(rawResult)) {
+            try { result = Buffer.from(rawResult, 'hex').toString('utf-8'); } catch(e) {}
+        }
+        return result;
     } catch (error) {
         return null;
     }
 }
 
 function getAuthClient(suffix) {
-    const raw = getKeychainPassword(`google-token-${suffix}`);
-    if (raw) {
+    const rawToken = getKeychainPassword(`google-token-${suffix}`);
+    const rawSecret = getKeychainPassword(`google-client-secret-${suffix}`);
+    
+    if (rawToken && rawSecret) {
         try {
-            const tokenData = JSON.parse(raw);
-            const auth = new google.auth.OAuth2();
+            const tokenData = JSON.parse(rawToken);
+            const secretData = JSON.parse(rawSecret);
+            const creds = secretData.installed || secretData.web || {};
+            
+            const auth = new google.auth.OAuth2(creds.client_id, creds.client_secret);
             auth.setCredentials(tokenData);
             return auth;
         } catch (e) {

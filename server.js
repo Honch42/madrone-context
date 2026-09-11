@@ -6,6 +6,9 @@ const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
 const { GoogleGenAI } = require('@google/genai');
+const mcp = require('./plugins/mcp_client.js');
+const Anthropic = require('@anthropic-ai/sdk');
+const OpenAI = require('openai');
 
 const app = express();
 app.use(cors());
@@ -17,6 +20,13 @@ app.use('/static', express.static(frontendDir));
 const server = http.createServer(app);
 const wssOrchestrator = new WebSocketServer({ noServer: true });
 const wssArchive = new WebSocketServer({ noServer: true });
+
+// Initialize MCP
+setTimeout(() => {
+    if (typeof ARCHIVE_DIR !== 'undefined' && ARCHIVE_DIR) {
+        mcp.initMCP(ARCHIVE_DIR).catch(console.error);
+    }
+}, 2000);
 
 server.on('upgrade', (request, socket, head) => {
     const pathname = request.url;
@@ -35,8 +45,12 @@ server.on('upgrade', (request, socket, head) => {
 
 function getKeychainPassword(account, service="AntiGravity") {
     try {
-        const result = execSync(`security find-generic-password -s "${service}" -a "${account}" -w`, { encoding: 'utf-8' });
-        return result.trim();
+        const rawResult = require('child_process').execSync(`security find-generic-password -s "${service}" -a "${account}" -w`, { encoding: 'utf-8' }).trim();
+        let result = rawResult;
+        if (/^[0-9a-fA-F]+$/.test(rawResult)) {
+            try { result = Buffer.from(rawResult, 'hex').toString('utf-8'); } catch(e) {}
+        }
+        return result;
     } catch (error) {
         return null;
     }
@@ -56,7 +70,6 @@ if (!apiKey) {
         } catch(e) { apiKey = raw; }
     }
 }
-
 if (apiKey) {
     try {
         const data = JSON.parse(apiKey);
@@ -64,15 +77,18 @@ if (apiKey) {
     } catch(e) {}
 }
 
+let anthropicKey = store.get('anthropicApiKey') || getKeychainPassword("anthropic-api-key");
+let openaiKey = store.get('openaiApiKey') || getKeychainPassword("openai-api-key");
 
 
 
-let ARCHIVE_DIR = store.get('workspaceDir') || require('path').join(require('os').homedir(), "Documents", "ProactiveContext");
+
+let ARCHIVE_DIR = store.get('workspaceDir') || require('path').join(require('os').homedir(), "Documents", "MadroneContext");
 
 if (!fs.existsSync(ARCHIVE_DIR)) {
     fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
 }
-const MASTER_DOSSIER_PATH = path.join(ARCHIVE_DIR, "master_dossier.md");
+let MASTER_DOSSIER_PATH = path.join(ARCHIVE_DIR, "master_dossier.md");
 
 const PERSONA_PROMPTS = {
     "socratic": "You are an advanced, empathetic, and Socratic interviewer. Your goal is to extract the underlying 'why' behind the user's actions, decisions, and feelings by asking progressively deeper questions.",
@@ -106,6 +122,7 @@ Return EXACTLY this JSON:
 `;
 
 const { fetchRearwardContext, fetchForwardContext } = require('./plugins/google_workspace.js');
+const { getScreenpipeContext } = require('./plugins/screenpipe.js');
 
 async function getRearwardContext(syncStatePath) {
     let lastSync = new Date(Date.now() - 86400000).toISOString();
@@ -115,18 +132,159 @@ async function getRearwardContext(syncStatePath) {
             lastSync = state.last_sync || lastSync;
         } catch(e) {}
     }
-    return await fetchRearwardContext(lastSync);
+    
+    const googleContext = await fetchRearwardContext(lastSync);
+    
+    const Store = require('electron-store');
+    const spPath = new Store().get('screenpipeDbPath');
+    const screenpipeContext = await getScreenpipeContext(spPath);
+    
+    return googleContext + "\n\n" + screenpipeContext;
 }
 
 wssOrchestrator.on('connection', async (ws) => {
     let chat = null;
+    let altChatHistory = [];
+    let systemPrompt = "";
     let currentMime = "audio/mp4";
+    
+    async function generateResponse(promptText, isAudio=false, audioBytes=null, partObj=null) {
+        const rawTools = await mcp.getMCPTools();
+        
+        if (ws.selectedModel.startsWith("gemini")) {
+            let userMsg = promptText;
+            if (isAudio && partObj) userMsg = [partObj, promptText];
+            
+            // Note: Currently, the native GoogleGenAI SDK chat object doesn't perfectly handle manual tool call loops 
+            // without complex state management. For now, we will just use the standard prompt for Gemini 
+            // since it already has access to the video natively.
+            const res = await chat.sendMessage({ message: userMsg });
+            return res.text;
+        } else {
+            // Hybrid Route
+            let userText = promptText;
+            let transcribed = "";
+            if (isAudio && partObj) {
+                const transcriptionAi = new GoogleGenAI({ apiKey: apiKey });
+                const transChat = transcriptionAi.chats.create({ model: "gemini-3.6-flash" });
+                const tRes = await transChat.sendMessage({ message: [partObj, "Transcribe this audio perfectly. Output ONLY the transcription, nothing else."] });
+                transcribed = tRes.text;
+                userText = "The user just spoke. Here is the transcript:\n" + transcribed + "\n\nRespond to them based on this transcript.";
+            }
+            
+            altChatHistory.push({ role: "user", content: userText });
+            let resultText = "";
+            
+            if (ws.selectedModel.startsWith("claude")) {
+                const anthClient = new Anthropic({ apiKey: anthropicKey });
+                const anthTools = mcp.formatToolsForAnthropic(rawTools);
+                
+                let isToolCall = true;
+                while (isToolCall) {
+                    const msgPayload = {
+                        model: ws.selectedModel === "claude-fable" ? "claude-3-5-fable-20241022" : "claude-3-5-sonnet-20241022",
+                        max_tokens: 1024,
+                        system: systemPrompt,
+                        messages: altChatHistory.map(m => ({ role: m.role, content: m.content }))
+                    };
+                    if (anthTools) msgPayload.tools = anthTools;
+                    
+                    const msg = await anthClient.messages.create(msgPayload);
+                    altChatHistory.push({ role: "assistant", content: msg.content });
+                    
+                    if (msg.stop_reason === "tool_use") {
+                        let toolResults = [];
+                        for (const block of msg.content) {
+                            if (block.type === "tool_use") {
+                                console.log("Claude is calling tool:", block.name);
+                                try {
+                                    const result = await mcp.callMCPTool(block.name, block.input);
+                                    toolResults.push({
+                                        type: "tool_result",
+                                        tool_use_id: block.id,
+                                        content: JSON.stringify(result)
+                                    });
+                                } catch (e) {
+                                    toolResults.push({
+                                        type: "tool_result",
+                                        tool_use_id: block.id,
+                                        content: "Error: " + e.message,
+                                        is_error: true
+                                    });
+                                }
+                            }
+                        }
+                        altChatHistory.push({ role: "user", content: toolResults });
+                    } else {
+                        isToolCall = false;
+                        resultText = msg.content.find(b => b.type === "text")?.text || "";
+                    }
+                }
+            } else if (ws.selectedModel.startsWith("gpt")) {
+                const oaiClient = new OpenAI({ apiKey: openaiKey });
+                const oaiTools = mcp.formatToolsForOpenAI(rawTools);
+                
+                let isToolCall = true;
+                while (isToolCall) {
+                    const msgs = [{ role: "system", content: systemPrompt }, ...altChatHistory];
+                    const msgPayload = {
+                        model: ws.selectedModel,
+                        messages: msgs
+                    };
+                    if (oaiTools) msgPayload.tools = oaiTools;
+                    
+                    const msg = await oaiClient.chat.completions.create(msgPayload);
+                    const choice = msg.choices[0].message;
+                    altChatHistory.push(choice);
+                    
+                    if (choice.tool_calls && choice.tool_calls.length > 0) {
+                        for (const tc of choice.tool_calls) {
+                            console.log("GPT-4o is calling tool:", tc.function.name);
+                            let args = {};
+                            try { args = JSON.parse(tc.function.arguments); } catch(e) {}
+                            
+                            try {
+                                const toolResult = await mcp.callMCPTool(tc.function.name, args);
+                                altChatHistory.push({
+                                    role: "tool",
+                                    tool_call_id: tc.id,
+                                    content: JSON.stringify(toolResult)
+                                });
+                            } catch (e) {
+                                altChatHistory.push({
+                                    role: "tool",
+                                    tool_call_id: tc.id,
+                                    content: "Error: " + e.message
+                                });
+                            }
+                        }
+                    } else {
+                        isToolCall = false;
+                        resultText = choice.content;
+                        // To keep history serializable for next turn, push a clean string version
+                        altChatHistory.pop();
+                        altChatHistory.push({ role: "assistant", content: resultText });
+                    }
+                }
+            }
+            
+            if (transcribed && resultText.includes("{")) {
+                try {
+                    let parsed = JSON.parse(resultText);
+                    parsed.transcript = transcribed;
+                    resultText = JSON.stringify(parsed);
+                } catch(e) {}
+            }
+            return resultText;
+        }
+    }
     
     ws.on('message', async (message, isBinary) => {
         if (!isBinary) {
             try {
                 const data = JSON.parse(message.toString());
                 if (data.type === 'init') {
+                    ws.selectedModel = data.model || 'gemini-3.6-flash';
                     const personaKey = data.persona || "socratic";
                     const personaInstruction = PERSONA_PROMPTS[personaKey] || PERSONA_PROMPTS["socratic"];
                     
@@ -139,15 +297,21 @@ wssOrchestrator.on('connection', async (ws) => {
                     if (dossierContext) {
                         systemInstruction += `\n\nHere is the user's Master Dossier (past context from previous sessions):\n${dossierContext}\nUse this context to inform your Option 1 questions. Do not bring it up awkwardly, but use it to be proactive.`;
                     }
+                    systemPrompt = systemInstruction;
                     
-                    chat = ai.chats.create({
-                        model: 'gemini-3.6-flash',
-                        config: {
-                            systemInstruction: systemInstruction,
-                            temperature: 0.7,
-                            responseMimeType: "application/json"
-                        }
-                    });
+                    if (ws.selectedModel.startsWith("gemini")) {
+                        const ai = new GoogleGenAI({ apiKey: apiKey });
+                        chat = ai.chats.create({
+                            model: ws.selectedModel,
+                            config: {
+                                systemInstruction: systemInstruction,
+                                temperature: 0.7,
+                                responseMimeType: "application/json"
+                            }
+                        });
+                    } else {
+                        chat = true; // Mark as initialized
+                    }
                     
                     try {
                         let prompt = "";
@@ -160,10 +324,10 @@ wssOrchestrator.on('connection', async (ws) => {
                             prompt = "The user has just started an ad-hoc session. Give a concise, welcoming first question about what's on their mind. Use Option 1 JSON format. For the transcript field, put 'Session Started'.";
                         }
                         
-                        const initialResponse = await chat.sendMessage(prompt);
+                        const initialResponseText = await generateResponse(prompt);
                         let qText = "Hello! Let's get started.";
                         try {
-                            const parsed = JSON.parse(initialResponse.text);
+                            const parsed = JSON.parse(initialResponseText);
                             qText = parsed.question || qText;
                         } catch(e) {}
                         
@@ -194,20 +358,30 @@ wssOrchestrator.on('connection', async (ws) => {
                         }
                         
                         
-                        const ai = new GoogleGenAI({ apiKey: apiKey });
-                        let myfile = await ai.files.upload({ file: latestVideo, config: { mimeType: "video/webm" } });
-                        while (myfile.state === "PROCESSING") {
-                            await new Promise(resolve => setTimeout(resolve, 2000));
-                            myfile = await ai.files.get({ name: myfile.name });
+                        let rawText = "";
+                        if (ws.selectedModel.startsWith("gemini")) {
+                            const ai = new GoogleGenAI({ apiKey: apiKey });
+                            let myfile = await ai.files.upload({ file: latestVideo, config: { mimeType: "video/webm" } });
+                            while (myfile.state === "PROCESSING") {
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                myfile = await ai.files.get({ name: myfile.name });
+                            }
+                            if (myfile.state === "FAILED") {
+                                throw new Error("Video processing failed in Gemini.");
+                            }
+                            
+                            const videoPrompt = "The session has concluded. I have attached the background video recording of the user during this session. Please output a JSON object with exactly three keys: 'summary' (a comprehensive Markdown summary of the session context), 'insights' (a Markdown bulleted list of interesting visual/behavioral insights derived from analyzing the user's video, body language, and environment), and 'synergy_diff' (a specific Markdown analysis cross-referencing the verbal transcript against the physical body language). Do not use the Option 1 format, just these three keys. DO NOT put the JSON inside a markdown code block, output raw JSON.\n\nCRITICAL FORMATTING INSTRUCTION FOR 'summary' and 'insights': Format the markdown using Obsidian-native syntax. Include YAML Frontmatter at the top of the summary with relevant metadata (e.g. date, tags). Use Obsidian wikilinks (e.g. [[Topic Name]], [[Project X]], [[Person Name]]) to naturally link key concepts, people, and projects so they populate the user's local knowledge graph. Use #tags for broad categorization.";
+                            
+                            const filePart = { fileData: { fileUri: myfile.uri, mimeType: myfile.mimeType } };
+                            const summaryResponse = await chat.sendMessage({ message: [filePart, videoPrompt] });
+                            rawText = summaryResponse.text.trim();
+                        } else {
+                            // Non-video analysis (Claude / GPT-4o)
+                            const textPrompt = "The session has concluded. Please output a JSON object with exactly three keys: 'summary' (a comprehensive Markdown summary of the session context), 'insights' (a Markdown bulleted list of interesting insights derived from our conversation), and 'synergy_diff' (Leave this blank). Do not use the Option 1 format, just these three keys. DO NOT put the JSON inside a markdown code block, output raw JSON.\n\nCRITICAL FORMATTING INSTRUCTION FOR 'summary' and 'insights': Format the markdown using Obsidian-native syntax. Include YAML Frontmatter at the top of the summary with relevant metadata (e.g. date, tags). Use Obsidian wikilinks (e.g. [[Topic Name]], [[Project X]], [[Person Name]]) to naturally link key concepts, people, and projects so they populate the user's local knowledge graph. Use #tags for broad categorization.";
+                            
+                            rawText = await generateResponse(textPrompt);
+                            rawText = rawText.trim();
                         }
-                        if (myfile.state === "FAILED") {
-                            throw new Error("Video processing failed in Gemini.");
-                        }
-                        
-                        const videoPrompt = "The session has concluded. I have attached the background video recording of the user during this session. Please output a JSON object with exactly three keys: 'summary' (a comprehensive Markdown summary of the session context), 'insights' (a Markdown bulleted list of interesting visual/behavioral insights derived from analyzing the user's video, body language, and environment), and 'synergy_diff' (a specific Markdown analysis cross-referencing the verbal transcript against the physical body language, pointing out moments where confidence dipped, physical hesitation contradicted verbal assurance, or any behavioral mismatches). Do not use the Option 1 format, just these three keys. DO NOT put the JSON inside a markdown code block, output raw JSON.";
-                        
-                        const summaryResponse = await chat.sendMessage([myfile, videoPrompt]);
-                        let rawText = summaryResponse.text.trim();
                         if (rawText.startsWith("```json")) {
                             rawText = rawText.slice(7, -3).trim();
                         } else if (rawText.startsWith("```")) {
@@ -254,12 +428,31 @@ wssOrchestrator.on('connection', async (ws) => {
                         
                         
                         const ai = new GoogleGenAI({ apiKey: apiKey });
-                        const dossierUpdateRes = await ai.models.generateContent({
-                            model: "gemini-3.6-flash",
-                            contents: updatePrompt
-                        });
+                        let dText = "";
+                        if (ws.selectedModel.startsWith("claude")) {
+                            const anthClient = new Anthropic({ apiKey: anthropicKey });
+                            const msg = await anthClient.messages.create({
+                                model: ws.selectedModel === "claude-fable" ? "claude-3-5-fable-20241022" : "claude-3-5-sonnet-20241022",
+                                max_tokens: 1024,
+                                messages: [{role:"user", content: updatePrompt}]
+                            });
+                            dText = msg.content[0].text;
+                        } else if (ws.selectedModel.startsWith("gpt")) {
+                            const oaiClient = new OpenAI({ apiKey: openaiKey });
+                            const msg = await oaiClient.chat.completions.create({
+                                model: ws.selectedModel,
+                                messages: [{role:"user", content: updatePrompt}]
+                            });
+                            dText = msg.choices[0].message.content;
+                        } else {
+                            const dossierUpdateRes = await ai.models.generateContent({
+                                model: ws.selectedModel,
+                                contents: updatePrompt
+                            });
+                            dText = dossierUpdateRes.text;
+                        }
                         
-                        fs.writeFileSync(MASTER_DOSSIER_PATH, dossierUpdateRes.text);
+                        fs.writeFileSync(MASTER_DOSSIER_PATH, dText);
                         
                         const syncStatePath = path.join(ARCHIVE_DIR, "sync_state.json");
                         fs.writeFileSync(syncStatePath, JSON.stringify({ last_sync: new Date().toISOString() }));
@@ -291,25 +484,25 @@ wssOrchestrator.on('connection', async (ws) => {
                 
                 try {
                     const part = { inlineData: { data: audioBytes.toString('base64'), mimeType: currentMime } };
-                    const response = await chat.sendMessage([part, "The user just spoke. Transcribe and respond."]);
+                    const responseText = await generateResponse("The user just spoke. Transcribe and respond.", true, audioBytes, part);
                     
                     let qText = "I didn't generate a question.";
                     let tText = "";
                     
                     try {
-                        const parsed = JSON.parse(response.text);
+                        const parsed = JSON.parse(responseText);
                         if (parsed.tool === "fetch_rearward_context") {
                             ws.send(JSON.stringify({ type: "question", text: "Pulling up your desktop context...", transcript: parsed.transcript || "Catch me up" }));
                             const contextData = await getRearwardContext(path.join(ARCHIVE_DIR, "sync_state.json"));
-                            const followup = await chat.sendMessage(`Here is the rearward context:\n${contextData}\nNow, output Option 1 JSON to summarize this to the user conversationally.`);
-                            const parsedFollowup = JSON.parse(followup.text);
+                            const followupText = await generateResponse(`Here is the rearward context:\n${contextData}\nNow, output Option 1 JSON to summarize this to the user conversationally.`);
+                            const parsedFollowup = JSON.parse(followupText);
                             qText = parsedFollowup.question || "I've reviewed your context.";
                             tText = parsed.transcript || "";
                         } else if (parsed.tool === "fetch_forward_context") {
                             ws.send(JSON.stringify({ type: "question", text: "Pulling up your calendar...", transcript: parsed.transcript || "What's coming up" }));
                             const contextData = await fetchForwardContext();
-                            const followup = await chat.sendMessage(`Here is the forward-looking context:\n${contextData}\nNow, output Option 1 JSON to summarize this to the user conversationally. CRITICAL: ask if there are offline tasks.`);
-                            const parsedFollowup = JSON.parse(followup.text);
+                            const followupText = await generateResponse(`Here is the forward-looking context:\n${contextData}\nNow, output Option 1 JSON to summarize this to the user conversationally. CRITICAL: ask if there are offline tasks.`);
+                            const parsedFollowup = JSON.parse(followupText);
                             qText = parsedFollowup.question || "I've reviewed your upcoming schedule.";
                             tText = parsed.transcript || "";
                         } else {
@@ -317,7 +510,7 @@ wssOrchestrator.on('connection', async (ws) => {
                             tText = parsed.transcript || "";
                         }
                     } catch (e) {
-                        qText = response.text;
+                        qText = responseText;
                         tText = "Parsing error";
                     }
                     
@@ -349,8 +542,24 @@ wssArchive.on('connection', (ws) => {
 });
 
 function startServer() {
-    server.listen(8000, () => {
-        console.log("Node WebSocket server listening on port 8000");
+    return new Promise((resolve, reject) => {
+        server.on('error', (e) => {
+            if (e.code === 'EADDRINUSE') {
+                console.log('Port 8000 in use, trying random port...');
+                server.close();
+                server.listen(0);
+            } else {
+                reject(e);
+            }
+        });
+        
+        server.on('listening', () => {
+            const port = server.address().port;
+            console.log("Node WebSocket server listening on port " + port);
+            resolve(port);
+        });
+        
+        server.listen(8000);
     });
 }
 

@@ -35,8 +35,9 @@ function connectWebSockets() {
         await setupCamera();
         statusText.innerText = "LISTENING - STREAM ACTIVE";
         
-        const persona = document.getElementById('persona-select') ? document.getElementById('persona-select').value : 'socratic';
-        let payload = { type: "init", persona: persona };
+        const persona = document.getElementById('persona-select').value;
+        const model = document.getElementById('model-select').value;
+        let payload = { type: "init", persona: persona, model: model };
         if (window.isDeepDive) {
             payload.deep_dive = true;
             payload.context = window.currentSynergyDiff || "";
@@ -304,14 +305,32 @@ if (investigateBtn) {
 document.getElementById('settings-btn').addEventListener('click', async () => {
     if (window.electronAPI) {
         const workspace = await window.electronAPI.getWorkspace();
-        const newKey = prompt(`Current Workspace: ${workspace}\n\nEnter a new Gemini API Key to update it, or cancel to keep existing:`);
+        const spPath = await window.electronAPI.getScreenpipePath() || "Default (~/.screenpipe/db.sqlite)";
+        
+        const newKey = prompt(`Current Workspace: ${workspace}\nScreenpipe Path: ${spPath}\n\nEnter a new Gemini API Key to update it, or cancel to keep existing:`);
         if (newKey) {
             await window.electronAPI.saveApiKey(newKey);
-            alert("API Key saved securely!");
+            alert("Gemini API Key saved securely!");
+        }
+        
+        const newAnth = prompt(`Enter a new Anthropic (Claude) API Key if you wish to use Claude models, or cancel:`);
+        if (newAnth) {
+            await window.electronAPI.saveAnthropicKey(newAnth);
+            alert("Anthropic API Key saved securely!");
+        }
+        
+        const newOai = prompt(`Enter a new OpenAI API Key if you wish to use GPT-4o models, or cancel:`);
+        if (newOai) {
+            await window.electronAPI.saveOpenAIKey(newOai);
+            alert("OpenAI API Key saved securely!");
         }
         if (confirm("Would you like to select a new Workspace Directory for saving dossiers and videos?")) {
             const newWs = await window.electronAPI.selectWorkspace();
             alert(`Workspace updated to: ${newWs}`);
+        }
+        if (confirm("Would you like to manually link a custom Screenpipe Database file (db.sqlite)?")) {
+            const newSp = await window.electronAPI.setScreenpipePath();
+            alert(`Screenpipe DB path updated to: ${newSp}`);
         }
     } else {
         alert("Settings are only available in the Electron desktop app.");

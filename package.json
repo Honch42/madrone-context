@@ -1,5 +1,5 @@
 {
-  "name": "interviewapp",
+  "name": "madronecontext",
   "version": "1.0.0",
   "description": "",
   "main": "main.js",
@@ -13,23 +13,30 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
     "@google/genai": "^2.21.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "electron-store": "^8.2.0",
     "express": "^5.2.1",
     "googleapis": "^178.1.1",
+    "openai": "^7.15.0",
     "ws": "^8.21.3"
   },
   "build": {
-    "appId": "com.honchariw.proactivecontext",
-    "productName": "Proactive Context",
+    "appId": "com.madrone.context",
+    "productName": "Madrone Context",
     "mac": {
       "category": "public.app-category.productivity",
       "extendInfo": {
         "NSCameraUsageDescription": "This app requires camera access to analyze video context during the interview.",
         "NSMicrophoneUsageDescription": "This app requires microphone access to hear your spoken answers during the interview."
-      }
+      },
+      "icon": "build/icon.png"
+    },
+    "dmg": {
+      "icon": "build/icon.png"
     }
   },
   "devDependencies": {
