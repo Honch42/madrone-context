@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Madrone Context Settings</title>
+    <style>
+        :root {
+            --bg-color: #0d1117; --panel: rgba(255,255,255,0.05); --line: rgba(255,255,255,0.12);
+            --text-primary: #e6edf3; --text-secondary: #7d8590; --accent: #007aff;
+            --success: #34c759; --danger: #ff453a; --warn: #e5b25a;
+            --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        * { box-sizing: border-box; }
+        body { background: var(--bg-color); color: var(--text-primary); font-family: var(--font); margin: 0; min-height: 100vh; }
+        #drag-region { -webkit-app-region: drag; height: 52px; position: fixed; top: 0; left: 0; right: 0; }
+        .page { max-width: 640px; margin: 0 auto; padding: 64px 24px 48px; }
+        header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+        header img { width: 48px; height: 48px; border-radius: 12px; }
+        h1 { margin: 0; font-size: 1.5rem; }
+        .intro { color: var(--text-secondary); line-height: 1.5; margin: 6px 0 24px; }
+        .step { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 12px; }
+        .row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+        .step-title { font-weight: 600; font-size: 1rem; display: flex; align-items: center; gap: 10px; }
+        .step-sub { font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px; line-height: 1.45; overflow-wrap: anywhere; }
+        .step-sub a { color: #58a6ff; }
+        .actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+        .keyrow { display: flex; gap: 8px; margin-top: 10px; }
+        input[type=password], input[type=text], input[type=number] {
+            flex: 1; background: rgba(0,0,0,0.3); color: var(--text-primary); border: 1px solid var(--line);
+            border-radius: 6px; padding: 8px 10px; font-size: 0.9rem; font-family: var(--font); min-width: 0;
+        }
+        input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+        input[type=number] { flex: 0 0 80px; }
+        button { font-family: var(--font); background: var(--accent); color: white; border: none; border-radius: 6px; padding: 7px 14px; font-weight: 600; font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
+        button:hover { filter: brightness(1.12); }
+        button:disabled { background: #3a4048; color: #9aa3ad; cursor: default; filter: none; }
+        button:focus-visible { outline: 2px solid #58a6ff; outline-offset: 2px; }
+        button.quiet { background: rgba(255,255,255,0.1); font-weight: 500; }
+        button.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); font-weight: 500; }
+        .badge { padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; background: rgba(255,255,255,0.1); color: var(--text-secondary); letter-spacing: 0.04em; text-transform: uppercase; }
+        .badge.ok { background: rgba(52,199,89,0.18); color: var(--success); }
+        .badge.missing { background: rgba(255,69,58,0.18); color: var(--danger); }
+        .badge.warn { background: rgba(229,178,90,0.18); color: var(--warn); }
+        .accounts { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; gap: 6px; }
+        .accounts li { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: rgba(0,0,0,0.25); border-radius: 6px; padding: 8px 10px; font-size: 0.9rem; }
+        .footer { display: flex; gap: 12px; justify-content: flex-end; align-items: center; margin-top: 24px; }
+        .footer .hint { flex: 1; color: var(--text-secondary); font-size: 0.85rem; }
+        .btn-large { padding: 12px 24px; font-size: 1rem; border-radius: 8px; }
+        .msg { font-size: 0.85rem; margin-top: 8px; min-height: 1em; }
+        .msg.ok { color: var(--success); } .msg.err { color: var(--danger); }
+        [hidden] { display: none !important; }
+    </style>
+</head>
+<body>
+    <div id="drag-region"></div>
+    <div class="page">
+        <header>
+            <img src="assets/logo.png" alt="">
+            <h1 id="page-title">Welcome to Madrone Context</h1>
+        </header>
+        <p class="intro" id="page-intro">A few things to set up before your first interview. Only the microphone and a Gemini key are required; everything else is optional.</p>
+
+        <div class="step">
+            <div class="row">
+                <div>
+                    <div class="step-title">Microphone &amp; camera <span id="media-badge" class="badge">Checking</span></div>
+                    <div class="step-sub" id="media-sub">The microphone is required. The camera is optional and enables body-language analysis with Gemini models.</div>
+                </div>
+                <div class="actions"><button id="btn-media" type="button">Grant access</button></div>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="row">
+                <div>
+                    <div class="step-title">Gemini API key <span id="gemini-badge" class="badge">Checking</span></div>
+                    <div class="step-sub">Required. Gemini transcribes your speech for every model. <a href="https://aistudio.google.com/apikey" data-external>Get a free key from Google AI Studio</a>.</div>
+                </div>
+            </div>
+            <div class="keyrow"><input type="password" id="gemini-input" placeholder="Paste your Gemini API key" autocomplete="off"><button type="button" data-save="geminiApiKey">Save</button><button type="button" class="quiet" data-clear="geminiApiKey" hidden>Remove</button></div>
+            <div class="msg" id="gemini-msg"></div>
+        </div>
+
+        <div class="step">
+            <div class="row">
+                <div>
+                    <div class="step-title">Anthropic API key <span id="anthropic-badge" class="badge">Checking</span></div>
+                    <div class="step-sub">Optional. Enables the Claude models. <a href="https://console.anthropic.com/settings/keys" data-external>Get a key from Anthropic</a>.</div>
+                </div>
+            </div>
+            <div class="keyrow"><input type="password" id="anthropic-input" placeholder="Paste your Anthropic API key" autocomplete="off"><button type="button" data-save="anthropicApiKey">Save</button><button type="button" class="quiet" data-clear="anthropicApiKey" hidden>Remove</button></div>
+            <div class="msg" id="anthropic-msg"></div>
+        </div>
+
+        <div class="step">
+            <div class="row">
+                <div>
+                    <div class="step-title">OpenAI API key <span id="openai-badge" class="badge">Checking</span></div>
+                    <div class="step-sub">Optional. Enables the GPT models. <a href="https://platform.openai.com/api-keys" data-external>Get a key from OpenAI</a>.</div>
+                </div>
+            </div>
+            <div class="keyrow"><input type="password" id="openai-input" placeholder="Paste your OpenAI API key" autocomplete="off"><button type="button" data-save="openaiApiKey">Save</button><button type="button" class="quiet" data-clear="openaiApiKey" hidden>Remove</button></div>
+            <div class="msg" id="openai-msg"></div>
+        </div>
+
+        <div class="step">
+            <div class="row">
+                <div>
+                    <div class="step-title">Notes folder</div>
+                    <div class="step-sub" id="workspace-sub"></div>
+                </div>
+                <div class="actions"><button id="btn-show-workspace" type="button" class="quiet">Show</button><button id="btn-workspace" type="button">Change</button></div>
+            </div>
+            <div class="step-sub">Session notes and your Master Dossier are plain Markdown files. Point this at an Obsidian vault to see them there.</div>
+        </div>
+
+        <div class="step">
+            <div class="row">
+                <div>
+                    <div class="step-title">Recordings folder</div>
+                    <div class="step-sub" id="media-dir-sub"></div>
+                </div>
+                <div class="actions"><button id="btn-media-dir-reset" type="button" class="quiet" hidden>Use default</button><button id="btn-media-dir" type="button">Change</button></div>
+            </div>
+            <div class="step-sub">Each recording is named with its session id, so it can always be matched to its note. Move this outside a synced vault if the files get large.</div>
+        </div>
+
+        <div class="step">
+            <div class="row">
+                <div>
+                    <div class="step-title">Screenpipe <span id="sp-badge" class="badge">Checking</span></div>
+                    <div class="step-sub" id="sp-sub"></div>
+                </div>
+                <div class="actions"><button id="btn-sp-clear" type="button" class="quiet" hidden>Clear</button><button id="btn-sp" type="button" class="quiet">Choose database</button></div>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="row">
+                <div>
+                    <div class="step-title">Google accounts <span id="google-badge" class="badge">Checking</span></div>
+                    <div class="step-sub" id="google-sub"></div>
+                </div>
+                <div class="actions"><button id="btn-google-client" type="button" class="quiet" hidden>Choose client file</button><button id="btn-google-connect" type="button">Connect account</button></div>
+            </div>
+            <ul class="accounts" id="google-accounts"></ul>
+            <div class="msg" id="google-msg"></div>
+        </div>
+
+        <div class="step">
+            <div class="row">
+                <div>
+                    <div class="step-title">Turn ends after silence</div>
+                    <div class="step-sub">Seconds of silence before your answer is sent. Press Space to send sooner.</div>
+                </div>
+                <div class="actions"><input type="number" id="silence-input" min="0.8" max="6" step="0.1"><button id="btn-silence" type="button" class="quiet">Save</button></div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <span class="hint" id="footer-hint"></span>
+            <button id="btn-quit" type="button" class="quiet" hidden>Quit</button>
+            <button id="btn-finish" type="button" class="btn-large" disabled>Complete setup</button>
+        </div>
+    </div>
+
+    <script>
+        const mode = new URLSearchParams(location.search).get('mode') === 'settings' ? 'settings' : 'wizard';
+        const api = window.electronAPI;
+        const $ = id => document.getElementById(id);
+        let status = null;
+
+        if (mode === 'settings') {
+            $('page-title').textContent = 'Settings';
+            $('page-intro').textContent = 'Keys are stored encrypted in your macOS Keychain. Changes take effect on the next session.';
+            $('btn-finish').textContent = 'Done';
+            $('btn-quit').hidden = false;
+        }
+
+        function badge(id, text, cls) { const el = $(id); el.textContent = text; el.className = 'badge' + (cls ? ' ' + cls : ''); }
+
+        function render() {
+            const s = status;
+            // Media
+            const mic = s.media.microphone, cam = s.media.camera;
+            if (mic === 'granted') {
+                badge('media-badge', cam === 'granted' ? 'Granted' : 'Mic only', cam === 'granted' ? 'ok' : 'warn');
+                $('media-sub').textContent = cam === 'granted' ? 'Microphone and camera access granted.' : 'Microphone granted. Camera access is off; sessions will be audio-only. Enable it in System Settings > Privacy & Security > Camera.';
+                $('btn-media').textContent = cam === 'granted' ? 'Granted' : 'Open Camera settings';
+                $('btn-media').disabled = cam === 'granted';
+                $('btn-media').onclick = () => api.openPrivacySettings('camera');
+            } else if (mic === 'denied' || mic === 'restricted') {
+                badge('media-badge', 'Denied', 'missing');
+                $('media-sub').textContent = 'Microphone access was denied. Enable it for Madrone Context in System Settings > Privacy & Security > Microphone, then come back.';
+                $('btn-media').textContent = 'Open Microphone settings';
+                $('btn-media').disabled = false;
+                $('btn-media').onclick = () => api.openPrivacySettings('microphone');
+            } else {
+                badge('media-badge', 'Required', 'missing');
+                $('btn-media').textContent = 'Grant access';
+                $('btn-media').disabled = false;
+                $('btn-media').onclick = async () => { $('btn-media').textContent = 'Asking…'; await api.requestMedia(); await refresh(); };
+            }
+            // Keys
+            for (const [name, id] of [['gemini', 'gemini'], ['anthropic', 'anthropic'], ['openai', 'openai']]) {
+                const has = s.keys[name];
+                badge(id + '-badge', has ? 'Saved' : (name === 'gemini' ? 'Required' : 'Optional'), has ? 'ok' : (name === 'gemini' ? 'missing' : ''));
+                $(id + '-input').placeholder = has ? 'Saved. Paste a new key to replace it.' : `Paste your ${name === 'gemini' ? 'Gemini' : name === 'anthropic' ? 'Anthropic' : 'OpenAI'} API key`;
+                document.querySelector(`[data-clear="${name}ApiKey"]`).hidden = !has;
+            }
+            // Folders
+            $('workspace-sub').textContent = s.workspaceDir;
+            $('media-dir-sub').textContent = s.mediaDir + (s.mediaDirIsDefault ? '  (default: inside the notes folder)' : '');
+            $('btn-media-dir-reset').hidden = s.mediaDirIsDefault;
+            // Screenpipe
+            if (s.screenpipe.found) { badge('sp-badge', 'Detected', 'ok'); $('sp-sub').textContent = s.screenpipe.found; }
+            else { badge('sp-badge', 'Optional', ''); $('sp-sub').textContent = 'Not found. If you use Screenpipe, choose its db.sqlite file to add recent screen activity to interviews.'; }
+            $('btn-sp-clear').hidden = !s.screenpipe.configured;
+            // Google
+            const accounts = s.google.accounts || [];
+            const list = $('google-accounts');
+            list.innerHTML = '';
+            for (const a of accounts) {
+                const li = document.createElement('li');
+                const label = document.createElement('span');
+                label.textContent = a.label + (a.needsReconnect ? '  (needs reconnecting)' : '');
+                const btn = document.createElement('button');
+                btn.type = 'button'; btn.className = 'danger'; btn.textContent = 'Disconnect';
+                btn.onclick = async () => { status = await api.googleDisconnect(a.id); render(); };
+                li.append(label, btn);
+                list.appendChild(li);
+            }
+            if (!s.google.configured) {
+                badge('google-badge', 'Not set up', '');
+                $('google-sub').textContent = 'Optional. Adds your calendar, recent email and documents to interviews. This build has no Google sign-in file; the app author can provide one (see README, "Google sign-in").';
+                $('btn-google-client').hidden = false;
+                $('btn-google-connect').disabled = true;
+            } else {
+                badge('google-badge', accounts.length ? `${accounts.length} connected` : 'Optional', accounts.length ? 'ok' : '');
+                $('google-sub').textContent = 'Optional. Adds your calendar, recent email and documents to interviews when you ask for them.';
+                $('btn-google-client').hidden = true;
+                $('btn-google-connect').disabled = false;
+            }
+            $('silence-input').value = s.silenceSeconds;
+            // Footer
+            const ready = s.keys.gemini && s.media.microphone === 'granted';
+            $('btn-finish').disabled = mode === 'wizard' && !ready;
+            $('footer-hint').textContent = mode === 'wizard' && !ready ? 'Grant microphone access and save a Gemini key to continue.' : '';
+        }
+
+        async function refresh() { status = await api.getStatus(); render(); }
+
+        for (const btn of document.querySelectorAll('[data-save]')) {
+            btn.addEventListener('click', async () => {
+                const name = btn.dataset.save;
+                const id = name.replace('ApiKey', '');
+                const input = $(id + '-input');
+                const value = input.value.trim();
+                const msg = $(id + '-msg');
+                if (!value) { msg.className = 'msg err'; msg.textContent = 'Paste a key first.'; return; }
+                try { status = await api.setSecret(name, value); input.value = ''; msg.className = 'msg ok'; msg.textContent = 'Saved.'; render(); }
+                catch (e) { msg.className = 'msg err'; msg.textContent = 'Could not save: ' + e.message; }
+            });
+        }
+        for (const btn of document.querySelectorAll('[data-clear]')) {
+            btn.addEventListener('click', async () => { status = await api.setSecret(btn.dataset.clear, ''); render(); });
+        }
+        for (const input of document.querySelectorAll('input[type=password]')) {
+            input.addEventListener('keydown', e => { if (e.key === 'Enter') input.parentElement.querySelector('[data-save]').click(); });
+        }
+        for (const a of document.querySelectorAll('a[data-external]')) {
+            a.addEventListener('click', e => { e.preventDefault(); api.openExternal(a.href); });
+        }
+
+        $('btn-workspace').addEventListener('click', async () => { status = await api.selectWorkspace(); render(); });
+        $('btn-show-workspace').addEventListener('click', () => api.showWorkspace());
+        $('btn-media-dir').addEventListener('click', async () => { status = await api.selectMediaDir(); render(); });
+        $('btn-media-dir-reset').addEventListener('click', async () => { status = await api.resetMediaDir(); render(); });
+        $('btn-sp').addEventListener('click', async () => { status = await api.selectScreenpipe(); render(); });
+        $('btn-sp-clear').addEventListener('click', async () => { status = await api.clearScreenpipe(); render(); });
+        $('btn-google-client').addEventListener('click', async () => {
+            const msg = $('google-msg');
+            try { status = await api.selectGoogleClient(); msg.className = 'msg ok'; msg.textContent = status.google.configured ? 'Client file saved. You can connect an account now.' : ''; render(); }
+            catch (e) { msg.className = 'msg err'; msg.textContent = e.message; }
+        });
+        $('btn-google-connect').addEventListener('click', async () => {
+            const btn = $('btn-google-connect'); const msg = $('google-msg');
+            btn.disabled = true; btn.textContent = 'Waiting for your browser…';
+            msg.className = 'msg'; msg.textContent = 'A Google sign-in page opened in your browser. Come back here when it says Connected.';
+            try { const r = await api.googleConnect(); status = r.status; msg.className = 'msg ok'; msg.textContent = `Connected ${r.account.label}.`; }
+            catch (e) { msg.className = 'msg err'; msg.textContent = e.message.replace(/^Error invoking remote method '[^']+': Error: /, ''); }
+            btn.disabled = false; btn.textContent = 'Connect account';
+            render();
+        });
+        $('btn-silence').addEventListener('click', async () => {
+            const v = Number($('silence-input').value);
+            if (!(v >= 0.8 && v <= 6)) return;
+            status = await api.setSetting('silenceSeconds', v); render();
+        });
+        $('btn-finish').addEventListener('click', () => { if (mode === 'wizard') api.completeWizard(); else api.openApp(); });
+        $('btn-quit').addEventListener('click', () => api.quitApp());
+
+        if (!api) {
+            document.querySelector('.page').innerHTML = '<h1>Settings</h1><p>Settings are only available inside the desktop app.</p>';
+        } else {
+            refresh();
+        }
+    </script>
+</body>
+</html>

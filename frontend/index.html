@@ -4,104 +4,102 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Madrone Context</title>
-    <link rel="stylesheet" href="style.css?v=4">
+    <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
     <div id="drag-region"></div>
 
-    <div class="brand-header" style="position: absolute; top: 20px; left: 20px; display: flex; align-items: center; gap: 10px; z-index: 1001; pointer-events: none; -webkit-app-region: no-drag;">
-        <img src="/static/assets/logo.png" alt="Madrone" style="width: 28px; height: 28px; border-radius: 6px; opacity: 0.7;">
-        <span style="color: rgba(255,255,255,0.4); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-weight: 600; font-size: 0.9rem; letter-spacing: 1px;">MADRONE</span>
+    <div class="brand-header">
+        <img src="assets/logo.png" alt="">
+        <span>MADRONE</span>
     </div>
 
-    <div class="top-bar" style="position: absolute; top: 20px; right: 20px; display: flex; align-items: center; gap: 15px; color: var(--text-secondary); font-size: 0.9rem; z-index: 1001; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; pointer-events: auto; -webkit-app-region: no-drag;">
-        <button id="settings-btn" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.9rem;">
-            ⚙ Settings
-        </button>
-        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
-            Model
-            <select id="model-select" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 4px 8px; cursor: pointer; outline: none; font-size: 0.9rem;">
-                <option value="gemini-3.6-flash" style="color: black;">Gemini 3.6 Flash (Video Aware)</option>
-                <option value="gemini-3.1-pro" style="color: black;">Gemini 3.1 Pro (Video Aware)</option>
-                <option value="claude-3-5-sonnet" style="color: black;">Claude 3.5 Sonnet (Hybrid)</option>
-                <option value="claude-fable" style="color: black;">Claude Fable (Hybrid)</option>
-                <option value="gpt-4o" style="color: black;">GPT-4o (Hybrid)</option>
-                <option value="gpt-4o-mini" style="color: black;">GPT-4o-mini (Hybrid)</option>
-            </select>
+    <div class="top-bar">
+        <label>Model
+            <select id="model-select"></select>
         </label>
-        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
-            Persona
-            <select id="persona-select" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 4px 8px; cursor: pointer; outline: none; font-size: 0.9rem;">
-                <option value="socratic" style="color: black;">Socratic Method (Default)</option>
-                <option value="5whys" style="color: black;">5-Whys Deep Dive</option>
-                <option value="grow" style="color: black;">GROW Coaching Model</option>
-                <option value="empathetic" style="color: black;">Empathetic Listener</option>
-            </select>
+        <label>Persona
+            <select id="persona-select"></select>
         </label>
+        <button id="settings-btn" class="btn btn-quiet" type="button">Settings</button>
     </div>
-    
 
-
-    <div class="container">
-        <!-- User Transcript Prompt -->
-        <div id="transcript-display" style="color: var(--text-secondary); font-size: 1.2rem; margin-bottom: 20px; font-style: italic; min-height: 1.5rem;">
-        </div>
-
-        <!-- AI Question Prompt -->
-        <div id="question-display" class="question-text">
-            Initializing AI Brain...
-        </div>
+    <!-- Interview HUD -->
+    <main class="container" id="hud">
+        <div id="transcript-display" class="transcript-text"></div>
+        <div id="question-display" class="question-text">Ready when you are.</div>
 
         <div class="status-bar">
             <div id="status-indicator" class="status-listening">
-                <span class="dot"></span> <span id="status-text">CONNECTING...</span>
+                <span class="dot"></span>
+                <span id="status-text">IDLE</span>
+                <span id="timer" class="timer" hidden>00:00</span>
             </div>
-            
             <div class="controls-hint">
-                <span class="key">Spacebar</span> Finish Speaking &nbsp;&nbsp;
-                <span class="key">Shift+Esc</span> Freeze &nbsp;&nbsp;
+                <span class="key">Space</span> Finish speaking
+                <span class="key">Shift+Esc</span> Pause
                 <span class="key">Cmd+Enter</span> Conclude
             </div>
         </div>
-        
-        <video id="hidden-video" autoplay muted playsinline style="display: none;"></video>
-    </div>
+    </main>
 
-    <div id="start-screen" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 500; background-color: var(--bg-color);">
-        <img src="/static/assets/logo.png" alt="Madrone" style="width: 100px; height: 100px; border-radius: 20px; margin-bottom: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-        <h1 style="color: white; font-size: 2rem; margin-bottom: 20px;">Context Platform Ready</h1>
-        <p style="color: var(--text-secondary); margin-bottom: 40px; font-size: 1rem;">Click below to connect to the orchestrator.</p>
-        <button id="btn-start" style="padding: 15px 30px; font-size: 1.2rem; background-color: #007aff; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: background-color 0.2s;">Begin Session</button>
-    </div>
+    <!-- Start screen -->
+    <section id="start-screen" class="overlay">
+        <img src="assets/logo.png" alt="" class="logo-large">
+        <h1>Madrone Context</h1>
+        <p class="muted">A short spoken interview. Speak freely; pause for a moment or press <span class="key">Space</span> when you've finished a thought.</p>
+        <p id="start-hint" class="muted small"></p>
+        <button id="btn-start" class="btn btn-primary btn-large" type="button">Begin session</button>
+    </section>
 
-    <!-- Review Dialog -->
-    <div id="review-screen" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 501; background-color: rgba(10, 10, 10, 0.95); padding: 40px; box-sizing: border-box;">
-        <h2 style="color: white; font-size: 2rem; margin-bottom: 30px;">Session Summary & Analysis</h2>
-        
-        <div style="display: flex; gap: 40px; width: 90%; max-width: 1200px; height: 60vh; margin-bottom: 30px;">
-            <!-- Left Column: Summary -->
-            <div style="flex: 1; display: flex; flex-direction: column; background: rgba(255,255,255,0.05); padding: 30px; border-radius: 12px;">
-                <h3 style="color: white; font-size: 1.2rem; margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">Context Summary</h3>
-                <div id="review-text" style="color: var(--text-secondary); font-size: 1rem; overflow-y: auto; line-height: 1.6; text-align: left; white-space: pre-wrap; flex: 1;"></div>
+    <!-- Error screen -->
+    <section id="error-screen" class="overlay" hidden>
+        <h2>Something went wrong</h2>
+        <p id="error-text" class="error-text"></p>
+        <div class="button-row">
+            <button id="btn-error-settings" class="btn btn-quiet" type="button">Open Settings</button>
+            <button id="btn-error-restart" class="btn btn-primary" type="button">Back to start</button>
+        </div>
+    </section>
+
+    <!-- Review screen -->
+    <section id="review-screen" class="overlay review" hidden>
+        <h2>Session summary</h2>
+        <div class="review-columns">
+            <div class="review-card">
+                <h3>Summary</h3>
+                <div id="review-summary" class="review-body"></div>
             </div>
-            
-            <!-- Right Column: Insights & Synergy -->
-            <div style="flex: 1; display: flex; flex-direction: column; background: rgba(0, 122, 255, 0.05); border: 1px solid rgba(0, 122, 255, 0.2); padding: 30px; border-radius: 12px; overflow-y: auto;">
-                <h3 style="color: #007aff; font-size: 1.2rem; margin-bottom: 15px; border-bottom: 1px solid rgba(0, 122, 255, 0.2); padding-bottom: 10px;">Video Insights</h3>
-                <div id="review-insights" style="color: var(--text-secondary); font-size: 1rem; line-height: 1.6; text-align: left; white-space: pre-wrap; margin-bottom: 30px;"></div>
-                
-                <h3 style="color: #bf5af2; font-size: 1.2rem; margin-bottom: 15px; border-bottom: 1px solid rgba(191, 90, 242, 0.2); padding-bottom: 10px;">Behavioral Alignment</h3>
-                <div id="review-synergy" style="color: var(--text-secondary); font-size: 1rem; line-height: 1.6; text-align: left; white-space: pre-wrap; flex: 1;"></div>
+            <div class="review-card accent">
+                <h3>Insights</h3>
+                <div id="review-insights" class="review-body"></div>
+                <h3 class="purple">Behavioral alignment</h3>
+                <div id="review-synergy" class="review-body"></div>
             </div>
         </div>
-        
-        <div style="display: flex; gap: 20px;">
-            <button id="btn-discard" style="padding: 15px 30px; font-size: 1.1rem; background-color: transparent; color: #ff453a; border: 1px solid #ff453a; border-radius: 8px; cursor: pointer; transition: background-color 0.2s;">Discard Session</button>
-            <button id="btn-investigate" style="padding: 15px 30px; font-size: 1.1rem; background-color: #bf5af2; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: background-color 0.2s; box-shadow: 0 4px 14px rgba(191, 90, 242, 0.4);">Investigate Discrepancies</button>
-            <button id="btn-save" style="padding: 15px 30px; font-size: 1.1rem; background-color: #34c759; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: background-color 0.2s; box-shadow: 0 4px 14px rgba(52, 199, 89, 0.4);">Save to Dossier</button>
+        <p id="review-status" class="muted small"></p>
+        <div class="button-row">
+            <button id="btn-discard" class="btn btn-danger" type="button">Discard session</button>
+            <button id="btn-investigate" class="btn btn-purple" type="button" hidden>Save &amp; investigate discrepancies</button>
+            <button id="btn-save" class="btn btn-success" type="button">Save to notes</button>
         </div>
-    </div>
+    </section>
 
-    <script src="/static/app.js?v=22"></script>
+    <!-- Done screen -->
+    <section id="done-screen" class="overlay" hidden>
+        <h2 id="done-title">Saved</h2>
+        <p id="done-text" class="muted"></p>
+        <div class="button-row">
+            <button id="btn-show-note" class="btn btn-quiet" type="button" hidden>Show note in Finder</button>
+            <button id="btn-new-session" class="btn btn-primary" type="button">New session</button>
+            <button id="btn-quit" class="btn btn-quiet" type="button">Quit</button>
+        </div>
+    </section>
+
+    <div id="notices" class="notices" aria-live="polite"></div>
+
+    <video id="hidden-video" autoplay muted playsinline hidden></video>
+
+    <script src="app.js?v=30"></script>
 </body>
 </html>
