@@ -112,13 +112,16 @@ Connecting a Google account lets the interviewer pull in your upcoming calendar,
 
 1. Go to https://console.cloud.google.com, create a project (any name).
 2. **APIs & Services > Library**: enable **Google Calendar API**, **Gmail API** and **Google Drive API**.
-3. **APIs & Services > OAuth consent screen**: choose **External**, fill in the app name and your email. Under **Test users**, add the Google addresses of everyone who will use the app.
-4. **APIs & Services > Credentials > Create credentials > OAuth client ID**: application type **Desktop app**. Download the JSON.
-5. Save the file as `google_oauth_client.json` in the project folder (it is git-ignored), or choose it from **Settings > Google accounts > Choose client file** on each Mac. A DMG built with `npm run build` includes the file automatically.
+3. **APIs & Services > OAuth consent screen** (Google now calls this **Google Auth Platform > Branding / Audience**): choose **External**, fill in the app name and your email.
+4. Under **Audience**, set the publishing status to **In production**. Do not leave it in **Testing**: in Testing, every connection expires after 7 days and only people you list as test users can sign in. In production, an unverified app can still be used by up to 100 people over its lifetime, and their connections do not expire weekly.
+5. **APIs & Services > Credentials > Create credentials > OAuth client ID**: application type **Desktop app**. Download the JSON.
+6. Save the file as `google_oauth_client.json` in the project folder (it is git-ignored), or choose it from **Settings > Google accounts > Choose client file** on each Mac. A DMG built with `npm run build` includes the file automatically.
 
-Then each person clicks **Connect account** in Settings, signs in with Google in their browser, and returns to the app.
+Then each person clicks **Connect account** in Settings and signs in with Google in their browser.
 
-**About Gmail access.** Gmail is a "restricted" scope in Google's rules. An app that requests it and has not gone through Google's verification must stay in *Testing* mode, which means only listed test users can sign in, and their connection expires after 7 days (the app shows "needs reconnecting" in Settings; reconnecting takes one click). If that is too much friction, remove the Gmail line from `SCOPES` in `src/google.js` and publish the consent screen; Calendar and Drive alone do not expire weekly.
+**What friends will see.** Because the app is not verified by Google, the sign-in page shows a warning titled "Google hasn't verified this app". That is expected. They click **Advanced**, then **Go to Madrone Context (unsafe)**, and continue. It only happens once per account. Warn them in advance so it doesn't look alarming.
+
+**The limits.** An unverified app is capped at 100 Google accounts for the lifetime of the Cloud project, and the cap cannot be reset. That is plenty for friends and family. Going past it, or removing the warning screen, means Google's verification process; because Gmail is a "restricted" scope, that includes an annual paid security assessment (roughly $500 to $4,500 a year), which is not worth it at this scale. Connections can still lapse if an account is unused for six months or the person changes their Google password; the app then shows "needs reconnecting" in Settings and one click fixes it.
 
 ## Building a DMG
 
@@ -135,7 +138,7 @@ The DMG lands in `dist/`. Without an Apple Developer ID the app is unsigned and 
 - **A Claude or GPT model returns an error as its first question.** The key for that vendor is missing, invalid, or out of credit. Check Settings and the vendor's dashboard.
 - **Video analysis failed.** Free-tier Gemini keys have low daily quotas and long sessions produce large uploads. The recording is kept; save the note anyway.
 - **Screenpipe shows "could not be read".** The `sqlite3` command must be available (it ships with macOS), and the database path must point at Screenpipe's `db.sqlite`.
-- **Google account shows "needs reconnecting".** Click Connect account and sign in again. See "About Gmail access" above for why this happens.
+- **Google account shows "needs reconnecting".** Click Connect account and sign in again. This happens if the OAuth consent screen was left in Testing status (connections expire after 7 days there), the account was unused for six months, or its Google password changed.
 
 ## Development
 

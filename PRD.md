@@ -382,7 +382,7 @@ A filesystem MCP server, bundled with the app and started with the app's own Nod
 
 ### 11.5 Setup Wizard, Settings & Edge Cases
 * **Bring-Your-Own-Key:** users paste Gemini, Anthropic and OpenAI keys. Gemini is required; the others unlock their models. Keys are encrypted with Electron's `safeStorage` (macOS Keychain). Models whose key is missing are shown but disabled, with the missing key named.
-* **Google sign-in:** each user connects their own Google accounts through an OAuth sign-in in the browser. The app distributor supplies the Google OAuth client file; the README explains how, and the trade-off Google imposes on the Gmail scope (Testing-mode apps need reconnecting every 7 days).
+* **Google sign-in:** each user connects their own Google accounts through an OAuth sign-in in the browser. The app distributor supplies the Google OAuth client file and publishes the consent screen to production; the README explains how. The app stays unverified, which Google allows for up to 100 accounts: users click through a one-time "Google hasn't verified this app" warning and their connection does not expire weekly. Gmail read access is kept because email is among the most valuable context for most people.
 * **Screenpipe independence:** if Screenpipe's `db.sqlite` is not found, it is marked optional and the interview runs without screen context.
 * **Obsidian independence:** if no vault is chosen, notes go to `~/Documents/MadroneContext`. The recordings folder defaults to `archives/` inside the notes folder and can be moved outside a synced vault.
 * **Camera independence:** without a camera the session records audio only.
