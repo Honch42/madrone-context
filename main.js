@@ -10,6 +10,7 @@ const config = require('./src/config');
 const legacy = require('./src/legacy');
 const discover = require('./src/discover');
 const onepassword = require('./src/onepassword');
+const storage = require('./src/storage');
 const googleCtx = require('./src/google');
 const screenpipe = require('./src/screenpipe');
 const { startServer } = require('./src/server');
@@ -50,7 +51,8 @@ function statusPayload() {
     encryption: config.encryptionAvailable(),
     workspaceDir: settings.workspaceDir,
     mediaDir: settings.mediaDir,
-    mediaDirIsDefault: settings.mediaDir === path.join(settings.workspaceDir, 'archives'),
+    mediaDirIsDefault: settings.mediaDir === storage.defaultMediaDir(settings.workspaceDir),
+    vault: storage.findVaultRoot(settings.workspaceDir),
     screenpipe: { configured: settings.screenpipeDbPath, found: screenpipe.findDatabase(settings.screenpipeDbPath) },
     google: { configured: !!googleClient, source: googleClient ? googleClient.source : null, accounts: config.listGoogleAccounts() },
     media: mediaStatus(),
@@ -173,7 +175,7 @@ ipcMain.handle('select-workspace', async () => {
     const previous = config.getSettings();
     config.setSetting('workspaceDir', result.filePaths[0]);
     // If the recordings folder was the default under the old workspace, follow the workspace.
-    if (previous.mediaDir === path.join(previous.workspaceDir, 'archives')) config.setSetting('mediaDir', null);
+    if (previous.mediaDir === storage.defaultMediaDir(previous.workspaceDir)) config.setSetting('mediaDir', null);
     fs.mkdirSync(result.filePaths[0], { recursive: true });
   }
   return statusPayload();
@@ -195,6 +197,11 @@ ipcMain.handle('show-workspace', () => {
   const dir = config.getSettings().workspaceDir;
   fs.mkdirSync(dir, { recursive: true });
   shell.openPath(dir);
+});
+
+ipcMain.handle('open-in-obsidian', (event, target) => {
+  if (typeof target === 'string' && fs.existsSync(target) && storage.findVaultRoot(path.dirname(target))) return shell.openExternal(storage.obsidianUrl(target));
+  return false;
 });
 
 ipcMain.handle('show-path', (event, target) => {

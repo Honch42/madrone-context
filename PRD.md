@@ -231,28 +231,35 @@ Following session completion, the WebM recording is uploaded to Gemini (Flash or
 ## 7. Storage, Knowledge Preservation & Downstream Consumption
 
 ### 7.1 Local-First Storage Architecture
-All data is stored in a user-chosen notes folder (default: `~/Documents/MadroneContext`; an Obsidian vault works well). Any sync tool the user already runs (Google Drive for Desktop, iCloud, Obsidian Sync) carries it to other machines.
+All data is stored in a user-chosen notes folder (default: `~/Documents/MadroneContext`; an Obsidian vault works best). Everything the app writes lives in one `Madrone` subfolder, so it sits tidily inside a vault and can be moved as a unit. Any sync tool the user already runs carries it to other machines.
 
 ```
-<notes folder>/
+<notes folder>/Madrone/
 ├── master_dossier.md                       cumulative profile, rewritten after every saved session
-├── sessions/
-│   └── 2026-09-11_1422_session.md          one note per session
-├── dossier_history/
-│   └── master_dossier_2026-09-11_1422.md   copy of the dossier taken before each rewrite
+├── Sessions/2026-09-11_1422_session.md     one note per session
+├── People/  Projects/  Topics/             one note per entity the sessions mention (the graph's nodes)
+├── Madrone Sessions.base                   Obsidian Bases table: all sessions, flagged incongruence, by project
+├── dossier_history/                        copy of the dossier taken before each rewrite
 ├── sync_state.json                         last-saved timestamp used for "catch me up"
-└── archives/                               recordings; can be relocated outside a synced vault
-    └── 2026/09/2026-09-11_1422_video.webm
+└── archives/2026/09/<id>_video.webm        recordings; can be relocated outside a synced vault
 ```
 
 Every session has an id of the form `YYYY-MM-DD_HHMM`. The id is in the note's filename, in the note's frontmatter, and in the recording's filename, so a note and its recording can always be matched even if the archives folder is moved out of the vault to keep sync traffic small.
+
+### 7.1a Obsidian Graph Integration
+The platform treats Obsidian's links as the knowledge graph rather than building its own:
+* **Entity notes.** After each session the model lists the people, projects and topics discussed; the app creates or appends to one note per entity with a dated, linked "Mentions" line. Session notes carry `people`, `projects` and `topics` as list-of-link properties and link to the entities in the body, so backlinks and the graph view connect sessions to what they were about.
+* **Consistent naming.** The model is shown the names of existing entity notes before summarizing and instructed to reuse them; loose matching (case, punctuation) maps variants onto existing notes.
+* **Interview-time recall.** When a transcript mentions a known entity, that note's contents are passed to the interviewer on the next turn, for every model. This is how the interviewer knows what "the vendor thing" was three sessions ago.
+* **Bases table.** A generated `.base` file gives a sessions table with views for flagged incongruence and grouping by project, which replaces the PRD's original `get_delta_flags` tool with a note the user can open.
+* **Recordings inline.** Session notes embed their recording when it lives inside the vault, and the saved screen offers "Open in Obsidian".
 
 ### 7.2 The Retroactive Reprocessing Guarantee
 **Raw recordings are permanently archived and named by session id.** 
 As future multimodal models emerge (with 10x greater facial, vocal, and emotional resolution), a batch reprocessing command can re-interrogate historic recordings and upgrade the entire knowledge base retrospectively without requiring new interviews. *Status:* the recordings and the ids that link them to notes are in place; the reprocessing command itself is not built yet.
 
 ### 7.3 Session Note Schema
-Each saved session writes one Markdown note. The frontmatter is written by the app; the summary, insights and alignment sections are written by the model in Obsidian-flavoured Markdown with `[[wikilinks]]` and `#tags`; the transcript is assembled by the app from every turn.
+Each saved session writes one Markdown note. The frontmatter is written by the app; the summary, insights and alignment sections are written by the model in Obsidian-flavoured Markdown with `[[wikilinks]]` to the entity notes and `#tags`; the transcript is assembled by the app from every turn.
 
 ```markdown
 ---
@@ -262,10 +269,19 @@ time: "14:22"
 duration: "12:40"
 model: gemini-3.6-flash
 persona: socratic
-recording: "archives/2026/09/2026-09-11_1422_video.webm"
+type: interview
+people:
+  - "[[Jane Doe]]"
+projects:
+  - "[[Q3 Roadmap]]"
+topics:
+  - "[[Hiring]]"
+energy: "neutral"
+confidence: 7
+incongruence: true
+recording: "Madrone/archives/2026/09/2026-09-11_1422_video.webm"
 recording_kind: video
 video_analysis: done
-type: interview
 tags:
   - madrone-session
 ---

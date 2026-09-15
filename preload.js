@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resetMediaDir: () => ipcRenderer.invoke('reset-media-dir'),
   showWorkspace: () => ipcRenderer.invoke('show-workspace'),
   showPath: (target) => ipcRenderer.invoke('show-path', target),
+  openInObsidian: (target) => ipcRenderer.invoke('open-in-obsidian', target),
   selectScreenpipe: () => ipcRenderer.invoke('select-screenpipe'),
   clearScreenpipe: () => ipcRenderer.invoke('clear-screenpipe'),
   selectGoogleClient: () => ipcRenderer.invoke('select-google-client'),

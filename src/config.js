@@ -127,7 +127,7 @@ function getSettings() {
     workspaceDir,
     // Where session recordings go. Defaults to <workspace>/archives so notes and
     // recordings travel together; can be pointed outside an Obsidian vault.
-    mediaDir: s.get('mediaDir') || path.join(workspaceDir, 'archives'),
+    mediaDir: s.get('mediaDir') || path.join(workspaceDir, 'Madrone', 'archives'),
     screenpipeDbPath: s.get('screenpipeDbPath') || null,
     googleClientPath: s.get('googleClientPath') || null,
     hasCompletedWizard: !!s.get('hasCompletedWizard'),

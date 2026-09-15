@@ -98,31 +98,58 @@ A timer in the corner turns amber at 15 minutes; the AI starts winding down afte
 
 ## What gets saved
 
+Everything the app writes goes into one `Madrone` folder inside your notes folder, so it sits tidily inside an Obsidian vault:
+
 ```
-<notes folder>/
+<notes folder>/Madrone/
 ├── master_dossier.md                     cumulative profile, rewritten after every saved session
-├── sessions/
+├── Sessions/
 │   └── 2026-09-11_1422_session.md        one note per session
+├── People/  Projects/  Topics/           one note per person, project or topic the sessions mention
+├── Madrone Sessions.base                 an Obsidian table of all sessions (see below)
 ├── dossier_history/
 │   └── master_dossier_2026-09-11_1422.md copy of the dossier before each rewrite
-└── archives/                             (or the recordings folder you chose)
+└── archives/                             recordings (or the folder you chose)
     └── 2026/09/2026-09-11_1422_video.webm
 ```
 
-Every note starts with frontmatter that names its session id and recording, so a note and its recording can always be matched up again even if you move the recordings folder somewhere else:
+Every session note starts with properties that name its session id, its recording, the people, projects and topics it touched, and a few scores, so a note and its recording can always be matched up again and the notes can be sorted and filtered:
 
 ```yaml
 ---
 session_id: 2026-09-11_1422
 date: 2026-09-11
-recording: "archives/2026/09/2026-09-11_1422_video.webm"
+duration: "12:40"
+people:
+  - "[[Jane Doe]]"
+projects:
+  - "[[Q3 Roadmap]]"
+topics:
+  - "[[Hiring]]"
+energy: "neutral"
+confidence: 7
+incongruence: true
+recording: "Madrone/archives/2026/09/2026-09-11_1422_video.webm"
 video_analysis: done
 tags:
   - madrone-session
 ---
 ```
 
-Each note contains the summary, insights, the behavioral-alignment report (Gemini models only) and a time-indexed transcript. Recordings are kept so they can be re-analyzed later with better models.
+Each note contains the summary, insights, the behavioral-alignment report (Gemini models only), a time-indexed transcript, and the recording embedded so it plays inline in Obsidian. Recordings are kept so they can be re-analyzed later with better models.
+
+If you used an earlier version that wrote `master_dossier.md` and `sessions/` straight into the notes folder, the app moves them into `Madrone/` the first time it runs.
+
+## Using it with Obsidian
+
+Point the notes folder at your vault (Settings > Notes folder) and the app becomes part of the vault's graph rather than just a folder in it:
+
+- **People, projects and topics become real notes.** After each session the app creates or updates a note in `People/`, `Projects/` or `Topics/` for everything the session discussed, with a dated "Mentions" line linking back to the session. Session notes and the Master Dossier link to them. Open the graph view and sessions cluster around the things you actually talk about; open a project note and its backlinks list every session where it came up.
+- **Names stay consistent.** Before writing a summary the model is shown the names of the notes that already exist, so it reuses `[[Q3 Roadmap]]` instead of inventing a variant. If a variant slips through, add it to that note's `aliases` property and Obsidian resolves it.
+- **The interviewer reads your notes.** When you mention a person or project that has a note, the app hands the interviewer that note's contents (any model, not just Claude and GPT), so it can ask about what happened last time instead of starting from zero.
+- **A sessions table.** `Madrone Sessions.base` opens as an Obsidian Bases table with three views: all sessions by date, sessions where an incongruence was flagged, and sessions grouped by project. It is written once and never overwritten, so edit it freely. Requires Obsidian 1.9 or newer; older versions ignore the file.
+- **Recordings play in the note.** With the recordings folder inside the vault (the default), each session note embeds its recording.
+- **Open in Obsidian.** The saved screen has a button that opens the new note in Obsidian.
 
 ## Models
 

@@ -59,6 +59,30 @@ class Session {
     this.windDown = false;
     this.ended = false;
     this.lastQuestion = '';
+    this.entities = { people: [], projects: [], topics: [] };   // names as resolved against the vault
+    this.rawEntities = { people: [], projects: [], topics: [] }; // as the model returned them
+    this.scores = {};
+    this.known = { people: [], projects: [], topics: [] };
+    this.injected = new Set();
+  }
+
+  // Entity notes the user just mentioned and the interviewer has not yet been shown.
+  vaultContextFor(text) {
+    const lower = String(text || '').toLowerCase();
+    const items = [];
+    let budget = 3000;
+    for (const kind of ['people', 'projects', 'topics']) {
+      for (const name of this.known[kind]) {
+        if (name.length < 4 || this.injected.has(kind + ':' + name) || !lower.includes(name.toLowerCase())) continue;
+        const summary = storage.readEntitySummary(this.paths, kind, name, Math.min(1200, budget));
+        this.injected.add(kind + ':' + name);
+        if (!summary) continue;
+        items.push({ kind: kind === 'people' ? 'person' : kind.slice(0, -1), name, text: summary });
+        budget -= summary.length;
+        if (budget <= 0) return items;
+      }
+    }
+    return items;
   }
   elapsed() { return (Date.now() - new Date(this.startedAt).getTime()) / 1000; }
   addTranscript(role, text, at = this.elapsed()) {
@@ -72,6 +96,8 @@ class Session {
   }
   noteInput() {
     const lines = [`Session ${this.id}${this.deepDive ? ' (deep dive)' : ''}`, '', '## Summary', this.summary || '(none)', '', '## Insights', this.insights || '(none)'];
+    const links = ['people', 'projects', 'topics'].filter(k => this.entities[k].length).map(k => `${k}: ${this.entities[k].map(n => `[[${n}]]`).join(', ')}`);
+    if (links.length) lines.push('', '## Linked notes', ...links);
     if (this.videoInsights) lines.push('', '## Video insights', this.videoInsights);
     if (this.videoAnalysis === 'done') lines.push('', '## Behavioral alignment', this.synergy || '(none)');
     return lines.join('\n');
@@ -115,7 +141,7 @@ function createApp() {
 async function gatherRearwardContext() {
   const settings = config.getSettings();
   let sinceIso = null;
-  try { sinceIso = JSON.parse(fs.readFileSync(path.join(settings.workspaceDir, 'sync_state.json'), 'utf-8')).last_sync || null; } catch (e) { /* first run */ }
+  try { sinceIso = JSON.parse(fs.readFileSync(storage.layoutPaths(settings).syncStatePath, 'utf-8')).last_sync || null; } catch (e) { /* first run */ }
   const [g, sp] = await Promise.all([
     googleCtx.fetchRearwardContext({ sinceIso }),
     screenpipe.getScreenpipeContext(settings.screenpipeDbPath)
@@ -157,8 +183,10 @@ function attachOrchestrator(ws) {
     const info = providers.modelInfo(modelId);
     if (!info) throw new Error(`Unknown model "${modelId}".`);
 
+    try { storage.migrateLayout(settings); } catch (e) { log('layout migration skipped:', e.message); }
     session = new Session({ model: modelId, persona, deepDive: data.deep_dive, context: data.context });
     storage.ensureDirs(session.paths);
+    session.known = storage.listEntities(session.paths);
     sessions.set(session.id, session);
     send({ type: 'session', session_id: session.id, model: modelId, persona, supports_video: info.video });
 
@@ -173,7 +201,7 @@ function attachOrchestrator(ws) {
     const dossier = storage.readDossier(session.paths);
     session.provider = providers.createProvider({
       modelId, keys, tools, log,
-      systemPrompt: prompts.systemPrompt({ persona, dossier, hasVault: !!tools })
+      systemPrompt: prompts.systemPrompt({ persona, dossier, hasVault: !!tools, known: session.known })
     });
 
     status('Thinking of a first question…');
@@ -203,9 +231,16 @@ function attachOrchestrator(ws) {
       return;
     }
 
-    const note = session.windDown ? prompts.WIND_DOWN_NOTE : '';
+    // Notes for entities mentioned in earlier turns ride along on this one; the
+    // current turn's transcript is only known after the model has heard it.
+    const pending = session.pendingContext || [];
+    session.pendingContext = [];
+    const note = (session.windDown ? prompts.WIND_DOWN_NOTE : '') + prompts.vaultContextNote(pending);
     const { parsed, raw, transcript } = await session.provider.respondToAudio(buffer, mime, note);
-    if (transcript) session.addTranscript('user', transcript, at);
+    if (transcript) {
+      session.addTranscript('user', transcript, at);
+      session.pendingContext = session.vaultContextFor(transcript);
+    }
 
     let question = null;
     if (parsed && parsed.tool === 'fetch_rearward_context') {
@@ -241,10 +276,16 @@ function attachOrchestrator(ws) {
     status('Summarizing the conversation…');
     if (session.provider && session.transcript.some(t => t.role === 'user')) {
       try {
-        const out = await session.provider.respond(prompts.textSummaryPrompt());
+        const out = await session.provider.respond(prompts.textSummaryPrompt(session.known));
         const p = providers.extractJson(out);
         session.summary = (p && p.summary) || out;
         session.insights = (p && p.insights) || '';
+        for (const kind of ['people', 'projects', 'topics']) {
+          session.rawEntities[kind] = Array.isArray(p && p[kind]) ? p[kind].filter(e => e && typeof e.name === 'string' && e.name.trim()).slice(0, 12) : [];
+        }
+        session.scores.energy = p && ['high', 'neutral', 'depleted'].includes(p.energy) ? p.energy : null;
+        const conf = p && Number(p.confidence);
+        session.scores.confidence = Number.isFinite(conf) ? Math.max(1, Math.min(10, Math.round(conf))) : null;
       } catch (e) {
         session.summary = `The summary could not be generated (${e.message}). The transcript below was saved.`;
         notice(`Summary failed: ${e.message}`, 'error');
@@ -274,6 +315,7 @@ function attachOrchestrator(ws) {
           const p = providers.extractJson(out);
           session.videoInsights = (p && p.insights) || '';
           session.synergy = (p && p.synergy_diff) || out;
+          session.scores.incongruence = p && typeof p.incongruence === 'boolean' ? p.incongruence : /detected incongruence:\s*(?!none)/i.test(session.synergy);
           session.videoAnalysis = 'done';
           send({ type: 'analysis', insights: session.videoInsights, synergy: session.synergy });
         } catch (e) {
@@ -292,13 +334,28 @@ function attachOrchestrator(ws) {
       status('Finishing the video analysis…');
       await session.analysisPromise;
     }
+    // Entity notes first, so the session note links to the names the vault actually uses.
+    for (const kind of ['people', 'projects', 'topics']) {
+      const names = [];
+      for (const entity of session.rawEntities[kind]) {
+        try {
+          const name = storage.upsertEntityNote(session.paths, kind, entity, session.id);
+          if (name && !names.includes(name)) names.push(name);
+        } catch (e) { log(`entity note failed for ${entity.name}:`, e.message); }
+      }
+      session.entities[kind] = names;
+    }
+    let baseCreated = false;
+    try { baseCreated = storage.ensureBaseFile(session.paths); } catch (e) { log('base file failed:', e.message); }
+
     const combinedInsights = [session.insights, session.videoInsights ? `\n**From the video**\n${session.videoInsights}` : ''].filter(Boolean).join('\n');
     const notePath = storage.writeSessionNote({
       sessionId: session.id, startedAt: session.startedAt, endedAt: session.endedAt,
       model: session.model, persona: session.persona, deepDive: session.deepDive,
       summary: session.summary, insights: combinedInsights, synergy: session.synergy,
       transcript: session.transcript, mediaPath: session.mediaPath, mediaKind: session.mediaKind,
-      videoAnalysis: session.videoAnalysis, paths: session.paths
+      videoAnalysis: session.videoAnalysis, paths: session.paths,
+      entities: session.entities, scores: session.scores
     });
 
     let dossierUpdated = false;
@@ -313,9 +370,14 @@ function attachOrchestrator(ws) {
     } catch (e) {
       notice(`The session note was saved, but the Master Dossier could not be updated (${e.message}).`, 'error');
     }
-    try { fs.writeFileSync(path.join(session.paths.workspace, 'sync_state.json'), JSON.stringify({ last_sync: new Date().toISOString() })); } catch (e) { /* ignore */ }
+    try { fs.writeFileSync(session.paths.syncStatePath, JSON.stringify({ last_sync: new Date().toISOString() })); } catch (e) { /* ignore */ }
 
-    send({ type: 'saved', note_path: notePath, dossier_updated: dossierUpdated, synergy: session.synergy, video_status: session.videoAnalysis });
+    const inVault = !!storage.findVaultRoot(session.paths.workspace);
+    send({
+      type: 'saved', note_path: notePath, dossier_updated: dossierUpdated, synergy: session.synergy, video_status: session.videoAnalysis,
+      entities: session.entities, base_created: baseCreated,
+      obsidian_url: inVault ? storage.obsidianUrl(notePath) : null
+    });
     sessions.delete(session.id);
     session = null;
   }
