@@ -86,12 +86,26 @@ function setSecret(name, value) {
   getStore().set(name, encrypt(trimmed));
 }
 
+// Marker value meaning "no key; let the Anthropic SDK use the ant CLI sign-in".
+const ANTHROPIC_PROFILE_AUTH = '__anthropic_profile__';
+
 function getKeys() {
+  const anthropicKey = getSecret('anthropicApiKey');
   return {
     gemini: getSecret('geminiApiKey'),
-    anthropic: getSecret('anthropicApiKey'),
+    anthropic: anthropicKey || (getStore().get('anthropicAuth') === 'profile' ? ANTHROPIC_PROFILE_AUTH : null),
     openai: getSecret('openaiApiKey')
   };
+}
+
+// Removes every key, connection and preference. Notes and recordings on disk
+// are untouched; they belong to the user, not the app.
+function forgetEverything() {
+  const s = getStore();
+  for (const name of SECRET_NAMES) s.delete(name);
+  for (const name of ['legacyGoogleClientJson', 'googleAccounts', 'googleClientPath', 'screenpipeDbPath', 'mediaDir', 'workspaceDir',
+    'hasCompletedWizard', 'silenceSeconds', 'sessionMinutesSoftLimit', 'lastModel', 'lastPersona', 'anthropicAuth',
+    'googleSuggestionDismissed', 'legacyImportDone']) s.delete(name);
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +129,8 @@ function getSettings() {
     silenceSeconds: Number(s.get('silenceSeconds') || 1.8),
     sessionMinutesSoftLimit: Number(s.get('sessionMinutesSoftLimit') || 15),
     lastModel: s.get('lastModel') || null,
-    lastPersona: s.get('lastPersona') || null
+    lastPersona: s.get('lastPersona') || null,
+    anthropicAuth: s.get('anthropicAuth') === 'profile' ? 'profile' : 'key'
   };
 }
 
@@ -181,6 +196,8 @@ function removeGoogleAccount(id) {
 module.exports = {
   getStore,
   SECRET_NAMES,
+  ANTHROPIC_PROFILE_AUTH,
+  forgetEverything,
   encryptionAvailable,
   getSecret,
   setSecret,

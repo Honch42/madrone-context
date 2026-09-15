@@ -102,6 +102,8 @@ function createApp() {
       silenceSeconds: settings.silenceSeconds,
       sessionMinutesSoftLimit: settings.sessionMinutesSoftLimit,
       googleAccounts: config.listGoogleAccounts().length,
+      googleConfigured: googleCtx.hasClientConfig(),
+      suggestGoogle: googleCtx.hasClientConfig() && config.listGoogleAccounts().length === 0 && !config.getStore().get('googleSuggestionDismissed'),
       screenpipe: !!screenpipe.findDatabase(settings.screenpipeDbPath),
       fileTools: mcp.isConnected()
     });
@@ -136,7 +138,7 @@ function attachOrchestrator(ws) {
   let chain = Promise.resolve();
 
   const send = obj => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj)); };
-  const notice = (text, level = 'info') => send({ type: 'notice', text, level });
+  const notice = (text, level = 'info', action = null) => send({ type: 'notice', text, level, action });
   const status = text => send({ type: 'status', text });
   const enqueue = fn => {
     chain = chain.then(fn).catch(e => {
@@ -209,14 +211,14 @@ function attachOrchestrator(ws) {
     if (parsed && parsed.tool === 'fetch_rearward_context') {
       status('Pulling up your recent context…');
       const ctx = await gatherRearwardContext();
-      ctx.notices.forEach(n => notice(n));
+      ctx.notices.forEach(n => notice(n, 'info', n.startsWith('No Google account') ? 'connect_google' : (n.startsWith('Screenpipe') ? 'screenpipe' : null)));
       const follow = await session.provider.respond(prompts.contextFollowupPrompt('rearward', ctx.text || '(No context sources are connected.)') + note);
       const fp = providers.extractJson(follow);
       question = (fp && fp.question) || follow;
     } else if (parsed && parsed.tool === 'fetch_forward_context') {
       status('Pulling up your calendar…');
       const ctx = await gatherForwardContext();
-      ctx.notices.forEach(n => notice(n));
+      ctx.notices.forEach(n => notice(n, 'info', n.startsWith('No Google account') ? 'connect_google' : null));
       const follow = await session.provider.respond(prompts.contextFollowupPrompt('forward', ctx.text || '(No calendar sources are connected.)') + note);
       const fp = providers.extractJson(follow);
       question = (fp && fp.question) || follow;

@@ -147,7 +147,7 @@ async function fetchRearwardContext({ sinceIso, perAccountTimeoutMs = 8000 } = {
   const notices = [];
   const lines = [];
   if (accounts.length === 0) {
-    return { text: '', notices: ['No Google account is connected. Continuing without email or document context.'] };
+    return { text: '', notices: ['No Google account is connected, so there is no email or document context yet.'] };
   }
   const since = sinceIso ? new Date(sinceIso) : new Date(Date.now() - 86400000);
   const unix = Math.floor(since.getTime() / 1000);
@@ -190,7 +190,7 @@ async function fetchForwardContext({ perAccountTimeoutMs = 8000 } = {}) {
   const notices = [];
   const lines = [];
   if (accounts.length === 0) {
-    return { text: '', notices: ['No Google account is connected. Continuing without calendar context.'] };
+    return { text: '', notices: ['No Google account is connected, so there is no calendar context yet.'] };
   }
   const now = new Date();
   const in7Days = new Date(now.getTime() + 7 * 86400000);

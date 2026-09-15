@@ -13,6 +13,7 @@ const { GoogleGenAI } = require('@google/genai');
 const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
 const { AUDIO_TURN_PROMPT, transcriptTurnPrompt } = require('./prompts');
+const { ANTHROPIC_PROFILE_AUTH } = require('./config');
 
 // The lightweight model that turns audio into text for the non-Gemini "hybrid" path.
 const TRANSCRIBE_MODEL = 'gemini-3.6-flash';
@@ -154,7 +155,8 @@ class GeminiProvider {
 class AnthropicProvider {
   constructor({ modelId, apiKey, geminiKey, systemPrompt, tools, log }) {
     this.modelId = modelId;
-    this.client = new Anthropic({ apiKey });
+    // With no key the SDK resolves the user's `ant auth login` profile itself.
+    this.client = apiKey === ANTHROPIC_PROFILE_AUTH ? new Anthropic() : new Anthropic({ apiKey });
     this.systemPrompt = systemPrompt;
     this.tools = tools;
     this.history = [];
@@ -304,7 +306,7 @@ function createProvider({ modelId, keys, systemPrompt, tools, log }) {
   if (!keys.gemini) throw new Error('A Gemini API key is required. Add one in Settings.');
   if (info.vendor === 'gemini') return new GeminiProvider({ modelId, apiKey: keys.gemini, systemPrompt, log });
   if (info.vendor === 'anthropic') {
-    if (!keys.anthropic) throw new Error('An Anthropic API key is required for Claude models. Add one in Settings.');
+    if (!keys.anthropic) throw new Error('Claude models need an Anthropic API key or an Anthropic CLI sign-in. Add one in Settings.');
     return new AnthropicProvider({ modelId, apiKey: keys.anthropic, geminiKey: keys.gemini, systemPrompt, tools, log });
   }
   if (!keys.openai) throw new Error('An OpenAI API key is required for GPT models. Add one in Settings.');

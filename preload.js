@@ -15,10 +15,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   googleConnect: () => ipcRenderer.invoke('google-connect'),
   googleDisconnect: (id) => ipcRenderer.invoke('google-disconnect', id),
   requestMedia: () => ipcRenderer.invoke('request-media'),
+  requestMicrophone: () => ipcRenderer.invoke('request-microphone'),
+  requestCamera: () => ipcRenderer.invoke('request-camera'),
+  detectKeys: () => ipcRenderer.invoke('detect-keys'),
+  useDetectedKey: (id) => ipcRenderer.invoke('use-detected-key', id),
+  useAnthropicProfile: () => ipcRenderer.invoke('use-anthropic-profile'),
+  dismissGoogleSuggestion: () => ipcRenderer.invoke('dismiss-google-suggestion'),
+  forgetEverything: () => ipcRenderer.invoke('forget-everything'),
   openPrivacySettings: (kind) => ipcRenderer.invoke('open-privacy-settings', kind),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   completeWizard: () => ipcRenderer.invoke('complete-wizard'),
   openApp: () => ipcRenderer.invoke('open-app'),
-  openSettings: () => ipcRenderer.invoke('open-settings'),
+  openSettings: (focus) => ipcRenderer.invoke('open-settings', focus),
   quitApp: () => ipcRenderer.send('quit-app')
 });
