@@ -17,13 +17,16 @@ A short spoken interview with an AI that asks you *why*. It records your answers
 
 ## Installing
 
-### From a DMG (if you were given one)
+### From the Releases page (easiest)
 
-1. Open the DMG and drag **Madrone Context** into Applications.
-2. If the app was not signed with an Apple Developer ID, macOS will refuse to open it the first time. Right-click the app, choose **Open**, then **Open** again in the dialog. You only need to do this once.
-3. Grant microphone (and, if you want video analysis, camera) access when asked.
+1. Open https://github.com/Honch42/madrone-context/releases/latest and download the `.dmg`.
+2. Open it and drag **Madrone Context** into Applications.
+3. The app is not signed with an Apple Developer ID, so macOS refuses to open it the first time. Right-click the app, choose **Open**, then **Open** again. You only need to do this once.
+4. Grant microphone access when asked.
 
-### From source
+The download works on both Apple Silicon and Intel Macs.
+
+### From source (if you want to change the code)
 
 1. Install Node.js 20 or newer from https://nodejs.org.
 2. In Terminal:
@@ -187,13 +190,21 @@ Then each person clicks **Connect account** in Settings. Before the browser open
 
 **The limits.** An unverified app is capped at 100 Google accounts for the lifetime of the Cloud project, and the cap cannot be reset. That is plenty for friends and family. Going past it, or removing the warning screen, means Google's verification process; because Gmail is a "restricted" scope, that includes an annual paid security assessment (roughly $500 to $4,500 a year), which is not worth it at this scale. Connections can still lapse if an account is unused for six months or the person changes their Google password; the app then shows "needs reconnecting" in Settings and one click fixes it.
 
-## Building a DMG
+## Building a new release
 
-```
-npm run build
-```
+GitHub builds the app for you; you don't need Node or Terminal.
 
-The DMG lands in `dist/`. Without an Apple Developer ID the app is unsigned and friends must right-click > Open the first time. To sign and notarize, join the Apple Developer Program, install your Developer ID certificate in Keychain, and set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` in the environment before running the build; electron-builder picks them up.
+1. On the repository page, open the **Actions** tab and choose **Build Mac app** on the left.
+2. Click **Run workflow**, type a version such as `v1.0.1`, and click the green **Run workflow** button.
+3. About ten minutes later a new entry appears under **Releases** with the `.dmg` attached. Share https://github.com/Honch42/madrone-context/releases/latest with your friends.
+
+Leave the version blank to get a test build without publishing a release; the `.dmg` is then attached to the run page under "Artifacts".
+
+**Including Google sign-in.** Rather than committing your `google_oauth_client.json`, store its contents as a repository secret: **Settings > Secrets and variables > Actions > New repository secret**, name `GOOGLE_OAUTH_CLIENT_JSON`, and paste the whole file as the value. Every build then includes it.
+
+**Signing and notarizing.** Unsigned builds make friends right-click > Open once. To remove that, join the Apple Developer Program, export your Developer ID certificate as a `.p12`, and add these secrets: `CSC_LINK` (the `.p12` encoded as base64), `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`. The workflow signs and notarizes automatically when they exist.
+
+**Building on your own Mac** still works: `npm run build` produces the same `.dmg` in `dist/`.
 
 ## Troubleshooting
 

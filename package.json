@@ -42,7 +42,12 @@
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
       ],
       "icon": "build/icon.png",
       "hardenedRuntime": true,
@@ -51,7 +56,8 @@
       "extendInfo": {
         "NSCameraUsageDescription": "Madrone Context records video during an interview so a model can compare what you say with how you say it.",
         "NSMicrophoneUsageDescription": "Madrone Context needs the microphone to hear your spoken answers."
-      }
+      },
+      "artifactName": "${productName}-${version}-mac.${ext}"
     },
     "dmg": {
       "icon": "build/icon.png"

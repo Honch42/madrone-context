@@ -367,7 +367,7 @@ The user can select between 4 established interviewing methodologies to suit the
 * Global shortcut to summon the HUD.
 * Slack as a context source.
 * A dedicated downstream MCP server, if and when the notes alone are not enough (see 7.4).
-* Signed and notarized DMG distribution.
+* Signed and notarized DMG distribution. *Status:* unsigned universal DMGs are built and published by a GitHub Actions workflow; signing and notarization switch on when the Apple credentials are added as repository secrets.
 
 ### Phase 3: Duplex Streaming & Autonomous Proactivity (V2.0)
 * Continuous bidirectional duplex streaming audio & vision powered by **Google Project Astra**, **Fable**, or the Gemini Live Audio/Video Engine.
