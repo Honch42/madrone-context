@@ -40,9 +40,9 @@ jobs:
       HAS_GOOGLE_CLIENT: ${{ secrets.GOOGLE_OAUTH_CLIENT_JSON != '' }}
       HAS_SIGNING_CERT: ${{ secrets.CSC_LINK != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
@@ -55,7 +55,7 @@ jobs:
 
       - name: Set version from tag
         if: env.VERSION_TAG != ''
-        run: npm version --no-git-tag-version "${VERSION_TAG#v}"
+        run: npm version --no-git-tag-version --allow-same-version "${VERSION_TAG#v}"
 
       - name: Add Google sign-in file (if the secret is set)
         if: env.HAS_GOOGLE_CLIENT == 'true'
