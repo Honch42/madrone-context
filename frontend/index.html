@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Madrone Context</title>
-    <link rel="stylesheet" href="style.css?v=6">
+    <link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
     <div id="drag-region"></div>
@@ -58,7 +58,14 @@
                 <button id="key-panel-save" class="btn btn-quiet" type="button">Save</button>
                 <button id="key-panel-link" class="btn btn-quiet" type="button">Get a key</button>
             </div>
+            <div class="panel-row panel-sources">
+                <span class="muted small">Or get it from:</span>
+                <button id="key-panel-clip" class="btn btn-quiet" type="button">Clipboard</button>
+                <button id="key-panel-env" class="btn btn-quiet" type="button">A .env file</button>
+                <button id="key-panel-op" class="btn btn-quiet" type="button" hidden>1Password</button>
+            </div>
             <p id="key-panel-msg" class="muted small"></p>
+            <p class="muted small">Tip: set a monthly spending cap on the key in the vendor's console. A leaked key can only cost money, never read your data.</p>
         </div>
 
         <label id="camera-row" class="camera-row" hidden>
@@ -124,6 +131,6 @@
 
     <video id="hidden-video" autoplay muted playsinline hidden></video>
 
-    <script src="app.js?v=31"></script>
+    <script src="app.js?v=32"></script>
 </body>
 </html>

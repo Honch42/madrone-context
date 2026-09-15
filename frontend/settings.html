@@ -53,6 +53,9 @@
         .footer .hint { flex: 1; color: var(--text-secondary); font-size: 0.85rem; }
         .btn-large { padding: 12px 24px; font-size: 1rem; border-radius: 8px; }
         .msg { font-size: 0.85rem; margin-top: 8px; min-height: 1em; }
+        .importrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+        button.small { padding: 4px 10px; font-size: 0.8rem; }
+        .tip { font-size: 0.82rem; color: var(--warn); margin-top: 8px; line-height: 1.4; }
         .msg.ok { color: var(--success); } .msg.err { color: var(--danger); }
         .privacy dl { display: grid; grid-template-columns: 160px 1fr; gap: 8px 14px; margin: 10px 0 0; font-size: 0.86rem; }
         .privacy dt { color: var(--text-primary); font-weight: 600; }
@@ -96,12 +99,20 @@
             <div class="row">
                 <div>
                     <div class="step-title">Gemini API key <span id="gemini-badge" class="badge">Checking</span></div>
-                    <div class="step-sub">Required. Gemini transcribes your speech for every model and runs the interview when you choose a Gemini model. <a href="https://aistudio.google.com/apikey" data-external>Get a free key from Google AI Studio</a>.</div>
+                    <div class="step-sub">Required. Gemini transcribes your speech for every model and runs the interview when you choose a Gemini model. <a href="https://aistudio.google.com/apikey" data-external>Get a free key from Google AI Studio</a>. You can also paste a 1Password reference (<code>op://…</code>).</div>
                 </div>
             </div>
             <ul class="list" id="gemini-found" hidden></ul>
             <div class="keyrow"><input type="password" id="gemini-input" placeholder="Paste your Gemini API key" autocomplete="off"><button type="button" data-save="geminiApiKey">Save</button><button type="button" class="quiet" data-clear="geminiApiKey" hidden>Remove</button></div>
+            <div class="importrow">
+                <span class="step-sub">Or get it from:</span>
+                <button type="button" class="quiet small" data-clip="gemini">Clipboard</button>
+                <button type="button" class="quiet small" data-envfile="gemini">A .env file</button>
+                <button type="button" class="quiet small" data-op="gemini" hidden>1Password</button>
+                <button type="button" class="quiet small" data-op-refresh="gemini" hidden>Refresh from 1Password</button>
+            </div>
             <div class="msg" id="gemini-msg"></div>
+            <div class="tip">Tip: set a monthly spending cap on each key in the vendor's console. A leaked key can only cost money, never read your data, and a cap limits even that.</div>
         </div>
 
         <div id="wizard-more">
@@ -121,6 +132,13 @@
             </div>
             <ul class="list" id="anthropic-found" hidden></ul>
             <div class="keyrow"><input type="password" id="anthropic-input" placeholder="Paste your Anthropic API key" autocomplete="off"><button type="button" data-save="anthropicApiKey">Save</button><button type="button" class="quiet" data-clear="anthropicApiKey" hidden>Remove</button></div>
+            <div class="importrow">
+                <span class="step-sub">Or get it from:</span>
+                <button type="button" class="quiet small" data-clip="anthropic">Clipboard</button>
+                <button type="button" class="quiet small" data-envfile="anthropic">A .env file</button>
+                <button type="button" class="quiet small" data-op="anthropic" hidden>1Password</button>
+                <button type="button" class="quiet small" data-op-refresh="anthropic" hidden>Refresh from 1Password</button>
+            </div>
             <div class="msg" id="anthropic-msg"></div>
         </div>
 
@@ -133,6 +151,13 @@
             </div>
             <ul class="list" id="openai-found" hidden></ul>
             <div class="keyrow"><input type="password" id="openai-input" placeholder="Paste your OpenAI API key" autocomplete="off"><button type="button" data-save="openaiApiKey">Save</button><button type="button" class="quiet" data-clear="openaiApiKey" hidden>Remove</button></div>
+            <div class="importrow">
+                <span class="step-sub">Or get it from:</span>
+                <button type="button" class="quiet small" data-clip="openai">Clipboard</button>
+                <button type="button" class="quiet small" data-envfile="openai">A .env file</button>
+                <button type="button" class="quiet small" data-op="openai" hidden>1Password</button>
+                <button type="button" class="quiet small" data-op-refresh="openai" hidden>Refresh from 1Password</button>
+            </div>
             <div class="msg" id="openai-msg"></div>
         </div>
 
@@ -213,7 +238,9 @@
                 <dt>Claude and GPT</dt><dd>Receive the transcript of what you said, never the audio or video. They can read notes in your notes folder when you mention one, but cannot change anything.</dd>
                 <dt>Google accounts</dt><dd id="privacy-google">Read-only. Upcoming calendar events; subjects, senders and preview snippets of recent, starred, draft and deadline-related email; names of recently modified Drive files. Nothing is sent, edited or deleted. Used only when you ask ("what's coming up", "catch me up").</dd>
                 <dt>Screenpipe</dt><dd>Read-only, and only when you ask. Recent window titles, screen text and heard speech from your local Screenpipe database.</dd>
+                <dt>1Password</dt><dd>Only when you click a 1Password button, and only after you approve 1Password's own prompt. The app sees item titles to build the list, and reads one item's secret when you choose it.</dd>
                 <dt>Your Master Dossier</dt><dd>Included in the interviewer's instructions so it can ask informed questions.</dd>
+                <dt>Your notes and recordings</dt><dd>Plain files in the folders above, protected only by your Mac's disk encryption and whatever syncs that folder. They hold personal reflections, so they are more sensitive than any key; keep the folder somewhere you trust.</dd>
                 <dt>Everything else</dt><dd>Stays on this Mac. Keys are stored encrypted in your Keychain. The app's internal server accepts connections only from this computer.</dd>
             </dl>
             <div class="row" style="margin-top: 14px">
@@ -338,6 +365,12 @@
                 document.querySelector(`[data-clear="${name}ApiKey"]`).hidden = !has || usingProfile;
                 renderFound(name);
             }
+            for (const name of ['gemini', 'anthropic', 'openai']) {
+                document.querySelector(`[data-op="${name}"]`).hidden = !s.onePassword.installed;
+                const src = s.keySources[name];
+                document.querySelector(`[data-op-refresh="${name}"]`).hidden = !(s.onePassword.installed && src && src.type === 'onepassword' && s.keys[name]);
+                if (s.keys[name] && src && src.type === 'onepassword') badge(name + '-badge', 'From 1Password', 'ok');
+            }
             const profile = detected && detected.anthropicProfile && detected.anthropicProfile.found;
             $('btn-anthropic-profile').hidden = !profile || (s.anthropicAuth === 'profile' && s.keys.anthropic);
             if (profile && s.anthropicAuth === 'profile') $('anthropic-sub').textContent = `Using the Anthropic CLI sign-in for profile "${detected.anthropicProfile.profile}". Paste a key to use one instead.`;
@@ -410,6 +443,71 @@
             a.addEventListener('click', e => { e.preventDefault(); api.openExternal(a.href); });
         }
 
+        function offerCandidates(vendor, cands, emptyText) {
+            const list = $(vendor + '-found');
+            const msg = $(vendor + '-msg');
+            if (!cands || cands.length === 0) { msg.className = 'msg err'; msg.textContent = emptyText; return; }
+            detected = detected || { gemini: [], anthropic: [], openai: [], anthropicProfile: { found: false } };
+            detected[vendor] = [...cands, ...(detected[vendor] || []).filter(c => !cands.find(n => n.id === c.id))];
+            msg.className = 'msg'; msg.textContent = '';
+            renderFound(vendor);
+            list.hidden = false;
+        }
+        for (const btn of document.querySelectorAll('[data-clip]')) {
+            btn.addEventListener('click', async () => {
+                const vendor = btn.dataset.clip;
+                const c = await api.clipboardKey(vendor);
+                offerCandidates(vendor, c ? [c] : [], `The clipboard does not contain a ${vendorLabel(vendor)} key. Copy the key first, then click again.`);
+            });
+        }
+        for (const btn of document.querySelectorAll('[data-envfile]')) {
+            btn.addEventListener('click', async () => {
+                const vendor = btn.dataset.envfile;
+                const r = await api.importEnvFile();
+                if (!r) return;
+                offerCandidates(vendor, r[vendor], `No ${vendorLabel(vendor)} key was found in ${r.file.split('/').pop()}.`);
+                for (const other of ['gemini', 'anthropic', 'openai']) if (other !== vendor && r[other].length) offerCandidates(other, r[other], '');
+            });
+        }
+        for (const btn of document.querySelectorAll('[data-op]')) {
+            btn.addEventListener('click', async () => {
+                const vendor = btn.dataset.op;
+                const msg = $(vendor + '-msg');
+                btn.disabled = true; msg.className = 'msg'; msg.textContent = 'Asking 1Password… approve the prompt if it appears.';
+                try {
+                    const items = await api.onePasswordList(vendor);
+                    const list = $(vendor + '-found');
+                    list.innerHTML = ''; list.hidden = items.length === 0;
+                    msg.textContent = items.length ? 'Choose the item that holds the key:' : 'No likely items found. Name the item after the vendor (for example "Anthropic API key") or paste an op:// reference above.';
+                    for (const it of items) {
+                        const li = document.createElement('li');
+                        const left = document.createElement('div');
+                        left.innerHTML = `<span></span><br><span class="src"></span>`;
+                        left.querySelector('span').textContent = it.title;
+                        left.querySelector('.src').textContent = `1Password · ${it.vault}${it.category ? ' · ' + it.category : ''}`;
+                        const use = document.createElement('button');
+                        use.type = 'button'; use.textContent = 'Use this item';
+                        use.onclick = async () => {
+                            use.disabled = true; msg.textContent = 'Reading from 1Password…';
+                            try { status = await api.onePasswordImport(vendor, it.id); msg.className = 'msg ok'; msg.textContent = `Imported "${it.title}".`; render(); }
+                            catch (e) { use.disabled = false; msg.className = 'msg err'; msg.textContent = cleanError(e); }
+                        };
+                        li.append(left, use);
+                        list.appendChild(li);
+                    }
+                } catch (e) { msg.className = 'msg err'; msg.textContent = cleanError(e); }
+                btn.disabled = false;
+            });
+        }
+        for (const btn of document.querySelectorAll('[data-op-refresh]')) {
+            btn.addEventListener('click', async () => {
+                const vendor = btn.dataset.opRefresh; const msg = $(vendor + '-msg');
+                btn.disabled = true; msg.className = 'msg'; msg.textContent = 'Reading from 1Password…';
+                try { status = await api.onePasswordRefresh(vendor); msg.className = 'msg ok'; msg.textContent = 'Key refreshed from 1Password.'; render(); }
+                catch (e) { msg.className = 'msg err'; msg.textContent = cleanError(e); }
+                btn.disabled = false;
+            });
+        }
         $('btn-anthropic-profile').addEventListener('click', async () => {
             const msg = $('anthropic-msg');
             try { status = await api.useAnthropicProfile(); msg.className = 'msg ok'; msg.textContent = 'Claude models will use your Anthropic CLI sign-in.'; render(); }

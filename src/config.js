@@ -80,14 +80,18 @@ function getSecret(name) {
   return value || null;
 }
 
-function setSecret(name, value) {
+function setSecret(name, value, source = null) {
   const trimmed = (value || '').trim();
+  setKeySource(name, trimmed ? source : null);
   if (!trimmed) { getStore().delete(name); return; }
   getStore().set(name, encrypt(trimmed));
 }
 
 // Marker value meaning "no key; let the Anthropic SDK use the ant CLI sign-in".
 const ANTHROPIC_PROFILE_AUTH = '__anthropic_profile__';
+
+function getKeySource(name) { return getStore().get(`keySource.${name}`) || null; }
+function setKeySource(name, source) { if (source) getStore().set(`keySource.${name}`, source); else getStore().delete(`keySource.${name}`); }
 
 function getKeys() {
   const anthropicKey = getSecret('anthropicApiKey');
@@ -103,6 +107,7 @@ function getKeys() {
 function forgetEverything() {
   const s = getStore();
   for (const name of SECRET_NAMES) s.delete(name);
+  for (const name of SECRET_NAMES) s.delete(`keySource.${name}`);
   for (const name of ['legacyGoogleClientJson', 'googleAccounts', 'googleClientPath', 'screenpipeDbPath', 'mediaDir', 'workspaceDir',
     'hasCompletedWizard', 'silenceSeconds', 'sessionMinutesSoftLimit', 'lastModel', 'lastPersona', 'anthropicAuth',
     'googleSuggestionDismissed', 'legacyImportDone']) s.delete(name);
@@ -198,6 +203,8 @@ module.exports = {
   SECRET_NAMES,
   ANTHROPIC_PROFILE_AUTH,
   forgetEverything,
+  getKeySource,
+  setKeySource,
   encryptionAvailable,
   getSecret,
   setSecret,

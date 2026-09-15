@@ -216,3 +216,5 @@ body {
 .camera-row input { margin-top: 3px; accent-color: #007aff; }
 .notice { display: flex; flex-direction: column; gap: 8px; }
 .notice .btn { align-self: flex-start; }
+.panel-sources { margin-top: 10px; }
+.panel-sources .btn { padding: 5px 10px; font-size: 0.8rem; }
