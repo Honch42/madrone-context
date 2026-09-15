@@ -1,10 +1,11 @@
 # Product Requirement Document (PRD)
-## Rough Draft PRD for Interview Based Practive Context Platform
+## PRD for the Interview-Based Proactive Context Platform (Madrone Context)
 
-* **Document Version:** 1.0 (Rough Draft)
-* **Date:** September 7, 2026
+* **Document Version:** 1.1 (updated to match the shipped code)
+* **Date:** September 11, 2026 (original draft September 7, 2026)
 * **Target OS:** macOS (Apple Silicon Optimized)
 * **Author:** Antigravity (Autonomous Systems Architecture) & John Honchariw
+* **Status note:** Sections 1 to 10 describe the product vision. Where the shipped app differs, a *Status* line says so. Section 11 is the authoritative description of what is built as of this version.
 
 ---
 
@@ -21,7 +22,7 @@ While passive telemetry accurately records *what* occurred on a machine, it comp
 ### 1.2 Product Vision & Primary Objective
 The **Interview-Based Proactive Context Platform** is an intelligent, autonomous interviewing system designed to proactively elicit, record, synthesize, and structure the human user's active context. 
 
-By conducting fluid, low-friction spoken interviews recorded via laptop webcam and microphone, the platform extracts the underlying "why" of human work and thought. It processes spoken language alongside non-verbal behavioral cues (facial tension, hesitation, vocal energy) and compiles structured, cumulative intelligence dossiers. These dossiers are preserved locally, synced to Google Drive, and exposed dynamically to downstream agents (such as Antigravity and Claude) via a dedicated Model Context Protocol (MCP) server.
+By conducting fluid, low-friction spoken interviews recorded via laptop webcam and microphone, the platform extracts the underlying "why" of human work and thought. It processes spoken language alongside non-verbal behavioral cues (facial tension, hesitation, vocal energy) and compiles structured, cumulative intelligence dossiers. These dossiers are preserved locally as plain Markdown (optionally inside an Obsidian vault), which any sync tool can carry to other machines and any filesystem-reading agent (Antigravity, Claude Desktop, Cursor) can consume directly.
 
 ---
 
@@ -54,6 +55,8 @@ The platform supports three primary operational modalities:
 4. *(Future V2.0 Milestone)* **Autonomous Proactive Interruption:**
    * Intelligent background monitoring that gently pings the user when deep context gaps are detected during long working sprints.
 
+*Status (Sept 2026):* the app runs one session type, the ad-hoc interview. The rearward and forward context of the morning and evening modes is available on request inside any session by saying "catch me up" or "what's coming up". Dedicated morning and evening modes with a pre-built agenda are Phase 2 work.
+
 ---
 
 ## 3. Product Principles & User Experience (UX)
@@ -63,8 +66,8 @@ Inspired by high-speed dictation tools like Wispr Flow, the user experience prio
 
 ### 3.2 Distraction-Free Typography UI (Zero Vanity)
 * **No Self-View Mirror:** User research shows displaying a live webcam mirror induces vanity, self-consciousness, and continuous self-grooming, undermining authentic reflection. The webcam records quietly in the background without rendering the user's face.
-* **Large-Text Question Prompt:** The AI’s current question is displayed prominently in clean, high-contrast, large typography. Users who read faster than speech can instantly digest the prompt and begin speaking without waiting for TTS playback.
-* **Subtle State Indicators:** Clean, unobtrusive visual states indicating whether the system is `Listening`, `Processing`, or `Speaking`.
+* **Large-Text Question Prompt:** The AI’s current question is displayed prominently in clean, high-contrast, large typography. The AI never speaks aloud: reading is faster than listening, the interface stays silent, and there is no risk of the AI's voice feeding back into the microphone.
+* **Subtle State Indicators:** Clean, unobtrusive visual states indicating whether the system is `Listening`, `Thinking`, or `Paused`, plus an elapsed-time counter.
 
 ```
 +-------------------------------------------------------------------------+
@@ -75,28 +78,28 @@ Inspired by high-speed dictation tools like Wispr Flow, the user experience prio
 |      in favor of SQLite during this afternoon's refactor?"              |
 |                                                                         |
 |                                                                         |
-|                [ ● LISTENING - STREAM ACTIVE (04:12) ]                  |
+|                [ ● LISTENING   04:12 ]                                  |
 |                                                                         |
-|   [Spacebar: Finish Utterance]  [Shift+Esc: Freeze]  [Cmd+Enter: Conclude]  |
+|   [Space: Finish speaking]  [Shift+Esc: Pause]  [Cmd+Enter: Conclude]   |
 +-------------------------------------------------------------------------+
 ```
 
 ### 3.3 Cognitive Time Boxing & Session Lifecycle
-* **15–20 Minute Upper Ceiling:** Aligned with research on sustained verbal focus and cognitive fatigue, sessions are limited to an upper boundary of 15–20 minutes. The model gracefully guides the conversation toward a natural summary as the limit approaches.
-* **User-Driven Early Exit:** The user can end a session at any time with a single shortcut or voice command (`"Wrap it up"`).
-* **"Freeze & Resume" State:** If interrupted by a phone call, urgent task, or distraction, the user can hit `Shift + Escape` to freeze the session. The audio/video container is cleanly finalized, and the session can be resumed later without losing conversational context.
-* **5-Second Post-Session Review:** Upon conclusion, the UI presents an instant bulleted summary:
-  * Key motivations extracted
-  * Explicit constraints recorded
-  * Action buttons: `[Save & Process]` (default) or `[Discard Session]`
+* **15–20 Minute Upper Ceiling:** Aligned with research on sustained verbal focus and cognitive fatigue, sessions are limited to an upper boundary of 15–20 minutes. At 15 minutes the timer turns amber, the user is reminded, and the model is told to guide the conversation toward a natural summary.
+* **User-Driven Early Exit:** The user can end a session at any time with `Cmd+Enter`. Saying "let's wrap up" prompts the model to ask one final summarizing question. Whatever the user was saying when they concluded is still transcribed into the note.
+* **Pause & Resume:** If interrupted by a phone call, urgent task, or distraction, the user can hit `Shift + Escape` to pause recording and resume where they left off. *Status:* pause is in-memory only; closing the app ends the session (the recording so far is kept). Resuming a session after the app is closed is future work.
+* **Post-Session Review:** Upon conclusion, the UI presents a summary within seconds, built from the transcript. With Gemini models the video analysis (insights and behavioral alignment) arrives in the background and is added to the note when the user saves.
+  * Action buttons: `[Save to notes]`, `[Discard session]` (deletes the recording), `[Save & investigate discrepancies]` (starts a follow-up interview about a flagged incongruence).
 
 ### 3.4 Invocation & Shortcuts
-* **Global Shortcut:** `Shift + Globe` (or user-configurable hotkey) summons the interview interface from anywhere on macOS.
-* **Turn Override:** `Spacebar` acts as an immediate manual signal for *"I am done speaking,"* bypassing acoustic silence timeouts.
+* **Global Shortcut:** `Shift + Globe` (or user-configurable hotkey) summons the interview interface from anywhere on macOS. *Status:* not built yet.
+* **Turn Override:** `Spacebar` acts as an immediate manual signal for *"I am done speaking,"* bypassing the silence timeout (1.8 seconds by default, adjustable in Settings).
 
 ---
 
 ## 4. System Architecture & Technical Specifications
+
+*This section describes the app as built. The original draft proposed a Python/PyWebView stack; the MVP was built on Electron instead, and that is what ships.*
 
 ```
 +-------------------------------------------------------------------------+
@@ -104,59 +107,58 @@ Inspired by high-speed dictation tools like Wispr Flow, the user experience prio
 +-------------------------------------------------------------------------+
 |                                                                         |
 |   +-----------------------------------------------------------------+   |
-|   |                  macOS Desktop Shell (PyWebView)                |   |
-|   |  - HTML5 MediaRecorder (720p H.264/AAC Fragmented Stream)       |   |
-|   |  - Large-Text Typography HUD + WebRTC AEC Audio Capture         |   |
+|   |                Electron app (Chromium renderer)                 |   |
+|   |  - Large-text HUD, silence detection, keyboard shortcuts        |   |
+|   |  - MediaRecorder: 720p WebM streamed to disk in 3 s chunks      |   |
+|   |  - Settings / setup page                                        |   |
 |   +-------------------------------+---------------------------------+   |
-|                                   | (Local IPC / WebSocket)             |
+|                                   | (two WebSockets on 127.0.0.1)       |
 |   +-------------------------------v---------------------------------+   |
-|   |                      Python FastAPI Backend                     |   |
-|   |  - macOS Keychain Access via `keyring` ("AntiGravity" Service)   |   |
-|   |  - State Machine & Session Orchestrator                         |   |
+|   |               Node.js orchestrator (Express + ws)               |   |
+|   |  - Session state machine, transcript, note + dossier writer     |   |
+|   |  - Secrets encrypted with Electron safeStorage (macOS Keychain) |   |
 |   +----+--------------------------+---------------------------+-----+   |
 |        |                          |                           |         |
 |   +----v------------+      +------v-----------+        +------v-----+   |
-|   |   MCP Client    |      |  Pluggable BYOK  |        |  Dual-Tier |   |
-|   | - Screenpipe    |      | - Gemini/Claude  |        |  Storage   |   |
-|   | - Workspace     |      | - Deepgram/Wispr |        | - Drive/MD |   |
-|   | - Slack         |      | - ElevenLabs/TTS |        | - MCP Serv |   |
+|   | Context sources |      |  Model adapters  |        |  Storage   |   |
+|   | - Screenpipe DB |      | - Gemini (native |        | - Markdown |   |
+|   | - Google OAuth  |      |   audio + video) |        |   notes    |   |
+|   | - Read-only MCP |      | - Claude / GPT   |        | - WebM     |   |
+|   |   on the vault  |      |   via transcript |        |   archives |   |
 |   +-----------------+      +------------------+        +------------+   |
 |                                                                         |
 +-------------------------------------------------------------------------+
 ```
 
-### 4.1 Recommended Tech Stack
-To maximize the probability of rapid, deterministic, one-shot implementation on macOS without compilation brittleness:
-* **Backend Core:** Python 3.11+ using `FastAPI` (local async server) and standard SDKs (`google-genai`, `anthropic`, `openai`, `mcp`, `keyring`).
-* **Frontend HUD:** Lightweight, cross-platform desktop UI using `pywebview` or modern web app communicating via WebSockets. Uses native browser `MediaRecorder` API with WebRTC Acoustic Echo Cancellation (AEC).
-* **Credential Vault:** Zero plaintext API key storage. All tokens dynamically loaded from macOS Keychain under the `AntiGravity` service.
+### 4.1 Tech Stack (as built)
+* **Shell:** Electron (Chromium + Node.js), macOS only. A single window with the native traffic lights; closing it quits the app and releases the camera.
+* **Backend:** Node.js, Express and `ws`, started inside the Electron main process and bound to `127.0.0.1` on a random port so nothing on the network can reach it.
+* **SDKs:** `@google/genai`, `@anthropic-ai/sdk`, `openai`, `googleapis`, `@modelcontextprotocol/sdk` plus the bundled `@modelcontextprotocol/server-filesystem`.
+* **Credential Vault:** API keys and Google tokens are encrypted with Electron's `safeStorage`, which uses the macOS Keychain, before being written to the app's settings file. Nothing is stored in plaintext.
 
-### 4.2 Conversational Loop Engine
-* **V1 Architecture (Turn-Based State Machine):**
-  1. AI states question (audio synthesized via TTS + text rendered in large typography).
-  2. Microphone opens with WebRTC hardware AEC active (preventing speaker loopback).
-  3. Adaptive Voice Activity Detection (VAD) monitors user speech:
-     * Generous silence threshold: 1.8 seconds of sustained silence triggers end-of-turn.
-     * Manual override: User taps `Spacebar` to immediately trigger submission.
-  4. Real-time STT streams transcription to backend.
-  5. LLM generates next question based on current agenda, active transcript, and persona guidelines.
-* **V2 Roadmap (Duplex Streaming):** Migration to continuous bidirectional WebRTC audio streaming (e.g., Gemini Live API), incorporating conversational naturalness principles in consultation with Ophir Samson.
+### 4.2 Conversational Loop Engine (turn-based)
+1. The AI's question is rendered in large type. Nothing is spoken aloud.
+2. The microphone records continuously, even while the model is thinking, so nothing the user says is lost.
+3. A turn ends when 1.8 seconds of silence follow speech (adaptive to the room's noise floor), or immediately on `Space`.
+4. The turn's audio goes to the model: Gemini models hear the audio directly and return `{transcript, question}`; Claude and GPT receive a transcript produced by Gemini Flash (see 11.1).
+5. The next question appears; the loop repeats. At the soft time limit the model is instructed to wind down.
+* **V2 Roadmap (Duplex Streaming):** Migration to continuous bidirectional streaming (e.g. Gemini Live) remains a future option.
 
-### 4.3 Pluggable BYOK (Bring-Your-Own-Key) Engine Adapters
-The platform is explicitly designed to support the **highest-end frontier models** available. While cost-conscious tiers remain available, the primary design target leverages bleeding-edge cognitive and conversational engines—such as **Google Project Astra**, **Fable**, and the latest **Gemini Pro** (Gemini 1.5/2.0 Pro and upcoming Gemini.google.com Pro iterations)—to achieve maximal depth of psychological, emotional, and strategic understanding.
+### 4.3 Pluggable BYOK (Bring-Your-Own-Key) Engines
+The user pastes their own keys. Gemini is required for every configuration because it does the transcription; the other vendors are optional upgrades.
 
-| Engine Layer | Frontier / High-End Tier (Target) | Alternate Frontier Cloud | Cost-Conscious / Local Fallback |
-| :--- | :--- | :--- | :--- |
-| **Conversational Brain** | Gemini Pro (Gemini 2.0 Pro / Gemini.google.com Pro) | Claude 3.5/3.7 Opus & Sonnet / OpenAI o1 / GPT-4o | Gemini Flash / Local Ollama (Llama 3.3 70B) |
-| **Real-Time Duplex / Video Agent** | Google Project Astra / Fable | Gemini Live Audio Engine | Turn-based state machine |
-| **Speech-to-Text (STT)** | Wispr Flow API / Deepgram Nova-2 | Whisper Large-v3 / Gemini Multimodal Audio | Local `faster-whisper` |
-| **Voice Synthesis (TTS)** | ElevenLabs Multilingual V2 / OpenAI Voice Engine | Cartesia Sonic / Google Journey Voices | macOS Native (`NSSpeechSynthesizer`) |
-| **Multimodal Vision / Delta Analysis** | Gemini Pro Multimodal (High-Res Frame Sampling) | Claude 3.5/3.7 Vision / OpenAI GPT-4o Omni | Gemini Flash (~$0.03/run) / Local Qwen2-VL |
+| Engine layer | Built today | Notes |
+| :--- | :--- | :--- |
+| **Conversational brain** | Gemini 3.6 Flash, Gemini 3.1 Pro, Claude Sonnet 5, Claude Fable 5.1, GPT-4o, GPT-4o mini | Model list lives in one place (`src/providers.js`) so it can be updated without touching the rest of the app. |
+| **Speech-to-text** | Gemini 3.6 Flash | Used for Claude and GPT turns and for the final utterance at conclusion. Swappable behind one small class. |
+| **Voice synthesis** | None, by design | The AI reads its questions on screen. Removed from scope. |
+| **Video / delta analysis** | Gemini models | Claude and GPT sessions archive the recording for later analysis and use the transcript only. |
+| **File tools** | Read-only filesystem MCP on the notes folder | Available to Claude and GPT; Gemini's JSON response mode does not combine with tool calls yet. |
 
 ### 4.4 Hardware & Media Recording Pipeline
-* **Capture Profile:** 720p resolution @ 15–24 fps, H.264 video encoding, 48kHz AAC mono audio.
-* **Payload Optimization:** Compresses a 15-minute recording to **40–70MB**, ensuring rapid post-session upload without saturating home internet connections.
-* **Container Resilience:** Stream-writes to fragmented MP4 (`fMP4`) or WebM chunks on the local filesystem. A sudden crash, sleep state, or battery cut will never corrupt recorded frames.
+* **Capture profile:** 1280×720 at up to 24 fps (15 requested), VP9/VP8 video at about 0.8 Mbps and Opus audio at 64 kbps, in a WebM container. A 15-minute session is roughly 90 MB.
+* **Container resilience:** the recorder emits a chunk every 3 seconds, which the orchestrator appends to `archives/YYYY/MM/<session-id>_video.webm` as it arrives. A crash, sleep or battery cut leaves a playable partial file.
+* **Audio-only fallback:** if no camera is available or permission is refused, the session records audio only and skips video analysis.
 
 ---
 
@@ -179,17 +181,18 @@ Before launching an interview, the orchestrator constructs a targeted prompt age
 +-------------------------------+       +-------------------------------+       +-------------------------------+
 ```
 
-### 5.1 MCP Integration Fabric
-The app operates as an **MCP Client**, connecting to existing servers configured in the user's environment:
-* **Screenpipe MCP:** Queries recent active application windows, active document titles, and OCR summaries.
-* **Google Workspace MCP:** Ingests upcoming Google Calendar event titles and attendees, unread/starred Gmail threads.
-* **Slack MCP:** Inspects unresponded direct messages and team channels.
+*Status (Sept 2026):* the agenda is not built before the interview. The opening question is generated from the Master Dossier, and the rearward and forward sources below are pulled in when the user asks for them by voice. Pre-interview agenda generation is Phase 2 work.
+
+### 5.1 Context Sources
+* **Screenpipe:** read directly from Screenpipe's local SQLite database (recent application windows, OCR text, and heard speech). Optional; auto-detected or chosen in Settings.
+* **Google Workspace:** each user connects their own Google accounts through a sign-in flow in Settings (any number of accounts). Upcoming calendar events, drafts, starred and deadline-related email, recent inbox and sent mail, and recently modified Drive documents are read with read-only scopes. Requires the app distributor to supply a Google OAuth client (see README).
+* **The notes folder itself:** a read-only filesystem MCP server on the notes folder lets Claude and GPT look up a note the user mentions mid-interview.
+* **Slack:** not built. Future work.
 
 ### 5.2 Strict Graceful Degradation & Fail-Loud Policy
 * All external context integrations are treated as **strictly optional enrichment**.
-* If an MCP server is unreachable, timed out (>2.0s), or returns an empty dataset:
-  * The platform **alerts the user loudly** in the HUD: `[Notice: Screenpipe MCP offline. Proceeding with Forward-Looking and User-Specified topics.]`
-  * Execution never hangs, crashes, or blocks.
+* Screenpipe reads time out after 2 seconds; each Google account times out after 8 seconds; the MCP server gets 8 seconds to start. A source that is missing, slow, or whose access has expired produces a notice in the HUD (for example `Screenpipe database not found. Continuing without screen context.` or `Personal: Google access expired. Reconnect it in Settings.`) and the interview continues.
+* Execution never hangs, crashes, or blocks.
 
 ---
 
@@ -198,7 +201,7 @@ The app operates as an **MCP Client**, connecting to existing servers configured
 The platform’s primary analytical differentiator is the extraction of non-verbal context and **incongruence detection**.
 
 ### 6.1 Multi-Pass Video Analysis
-Following session completion, the raw 40–70MB MP4 recording is sent to frontier multimodal models—such as **Google Gemini Pro** (with high-density visual frame sampling) or **Claude 3.5/3.7 Vision**—to perform deep emotional, somatic, and cognitive evaluation. Gemini Flash remains available as an ultra-fast, budget-optimized fallback tier.
+Following session completion, the WebM recording is uploaded to Gemini (Flash or Pro, whichever ran the session) to perform emotional, somatic, and cognitive evaluation, and deleted from Google once the analysis returns. The analysis runs in the background after the text summary is already on screen, so the user never waits on the upload. Claude and GPT cannot ingest video; those sessions archive the recording for later analysis (see 7.2).
 
 ```
 +-------------------------------------------------------------------------+
@@ -228,59 +231,66 @@ Following session completion, the raw 40–70MB MP4 recording is sent to frontie
 ## 7. Storage, Knowledge Preservation & Downstream Consumption
 
 ### 7.1 Local-First Storage Architecture
-All data is stored in a user-specified directory on the local filesystem (default: `~/Documents/Anti-gravity/Context/`), which is natively synced to Google Drive via Google Drive for Desktop:
+All data is stored in a user-chosen notes folder (default: `~/Documents/MadroneContext`; an Obsidian vault works well). Any sync tool the user already runs (Google Drive for Desktop, iCloud, Obsidian Sync) carries it to other machines.
 
 ```
-~/Documents/Anti-gravity/Context/
-├── archives/
-│   └── 2026/09/
-│       ├── 2026-09-07_1400_Q3-Roadmap.mp4
-│       └── 2026-09-07_1400_Q3-Roadmap.wav
-├── dossiers/
-│   ├── 2026-09-07_Morning_Prep_Personal.md
-│   └── 2026-09-07_Evening_Debrief_Collective.md
-├── master_profile/
-│   ├── USER_CORE_PRINCIPLES.md
-│   ├── ACTIVE_CONSTRAINTS_AND_BLOCKERS.md
-│   └── MOTIVATION_VECTOR_INDEX.json
-└── config.json
+<notes folder>/
+├── master_dossier.md                       cumulative profile, rewritten after every saved session
+├── sessions/
+│   └── 2026-09-11_1422_session.md          one note per session
+├── dossier_history/
+│   └── master_dossier_2026-09-11_1422.md   copy of the dossier taken before each rewrite
+├── sync_state.json                         last-saved timestamp used for "catch me up"
+└── archives/                               recordings; can be relocated outside a synced vault
+    └── 2026/09/2026-09-11_1422_video.webm
 ```
+
+Every session has an id of the form `YYYY-MM-DD_HHMM`. The id is in the note's filename, in the note's frontmatter, and in the recording's filename, so a note and its recording can always be matched even if the archives folder is moved out of the vault to keep sync traffic small.
 
 ### 7.2 The Retroactive Reprocessing Guarantee
-**Raw video and audio files are permanently archived with synchronized timestamps.** 
-As future multimodal models emerge (with 10x greater facial, vocal, and emotional resolution), the user can execute a batch command:
-```bash
-python -m context_platform.reprocess --all-archives --model="gemini-3-flash"
-```
-This re-interrogates historic recordings and upgrades the entire knowledge base retrospectively without requiring new interviews.
+**Raw recordings are permanently archived and named by session id.** 
+As future multimodal models emerge (with 10x greater facial, vocal, and emotional resolution), a batch reprocessing command can re-interrogate historic recordings and upgrade the entire knowledge base retrospectively without requiring new interviews. *Status:* the recordings and the ids that link them to notes are in place; the reprocessing command itself is not built yet.
 
-### 7.3 Structured Dossier Schema
-Each completed session outputs a standardized Markdown dossier formatted as:
+### 7.3 Session Note Schema
+Each saved session writes one Markdown note. The frontmatter is written by the app; the summary, insights and alignment sections are written by the model in Obsidian-flavoured Markdown with `[[wikilinks]]` and `#tags`; the transcript is assembled by the app from every turn.
 
 ```markdown
-# [YYYY-MM-DD] [Session Type] [Topic]
+---
+session_id: 2026-09-11_1422
+date: 2026-09-11
+time: "14:22"
+duration: "12:40"
+model: gemini-3.6-flash
+persona: socratic
+recording: "archives/2026/09/2026-09-11_1422_video.webm"
+recording_kind: video
+video_analysis: done
+type: interview
+tags:
+  - madrone-session
+---
+# Session 2026-09-11 14:22
 
-## 1. Executive Summary & Core Motivations
-* **Primary Objective:** [Synthesized goal]
-* **Underlying Drivers:** [Why the user wants this]
-* **Explicit Constraints:** [Boundaries, deadlines, non-negotiables]
+## Summary
+Primary objective, underlying drivers, explicit constraints, open threads.
 
-## 2. Multimodal Delta & Sentiment Report
-* **Overall Energy:** [High / Neutral / Depleted]
-* **Confidence Rating:** [8/10]
-* **Detected Incongruence:** [e.g., Expressed verbal confidence regarding Vendor X, but exhibited high hesitation markers.]
+## Insights
+Bulleted insights from the conversation, plus "From the video" when analyzed.
 
-## 3. Verbatim Time-Indexed Transcript
-* **00:15 [AI]:** What is the core rationale behind...?
-* **00:32 [User]:** The real reason is...
+## Behavioral alignment
+Where words and physical cues agreed or diverged; "Detected incongruence" list.
+
+## Transcript
+- **00:00 AI:** What is the core rationale behind...?
+- **00:32 You:** The real reason is...
 ```
 
-### 7.4 Embedded Downstream MCP Server
-To allow coding agents (Antigravity, Claude Desktop, Cursor) to leverage this active context seamlessly, the platform includes a lightweight MCP server exposing tools:
-* `get_active_motivations(project: str)`: Returns current high-order drivers and goals.
-* `get_user_constraints(topic: str)`: Returns known boundaries, dislikes, and rigid rules.
-* `query_interview_context(query: str)`: Semantic search across historical dossiers.
-* `get_delta_flags(timeframe_days: int)`: Surfaces topics where user expressed unspoken hesitation.
+The Master Dossier is a single Markdown file the model rewrites after every saved session (goals, active projects, constraints, emotional state, recurring tensions, action items, recent sessions). The previous version is copied to `dossier_history/` before each rewrite, so nothing is lost if a rewrite drops something.
+
+### 7.4 Downstream Consumption by Other Agents
+Coding agents (Antigravity, Claude Desktop, Cursor) consume the context by reading the notes folder. Because every artifact is a plain Markdown file with predictable frontmatter, the standard filesystem MCP server those tools already ship with is enough: point it at the notes folder and ask for `master_dossier.md` or the most recent `sessions/*.md`.
+
+*Deferred:* a dedicated MCP server with semantic tools (`get_active_motivations`, `get_user_constraints`, `query_interview_context`, `get_delta_flags`) is not built. It becomes worthwhile once there is structured data to query beyond what a file read gives, for example an index of delta flags across sessions. Until then it would add a second thing to install without adding information.
 
 ---
 
@@ -305,33 +315,43 @@ The user can select between 4 established interviewing methodologies to suit the
 
 ## 9. Engineering Risk Assessment & Failure Modes
 
-| Risk Area | Severity | Failure Scenario | Engineering Mitigation Strategy |
+| Risk Area | Severity | Failure Scenario | Mitigation (as built) |
 | :--- | :--- | :--- | :--- |
-| **Acoustic Feedback Loop** | HIGH | AI's voice from speakers triggers mic, corrupting STT | Enable WebRTC hardware AEC; mute microphone input during TTS generation. |
-| **VAD Premature Interruption** | HIGH | System cuts off user while pausing to think | Set 1.8s adaptive silence window; provide `Spacebar` for instant manual completion. |
-| **Video Upload Latency** | MEDIUM | 1GB video upload blocks UI post-interview | Record at 720p 15fps H.264 (40–70MB); upload asynchronously while displaying instant text summary. |
-| **External MCP Offline** | MEDIUM | Screenpipe or Slack MCP crash freezes agenda | Implement 2.0s strict timeout; fail loudly with HUD warning and proceed to default topics. |
-| **Interrupted Video Container**| HIGH | App killed mid-session, corrupting MP4 container | Stream-record in fragmented MP4 (`fMP4`) chunks so partial video is always intact. |
-| **STT Engine Dependency** | LOW | Wispr Flow lack of raw API blocks transcription | Decouple STT layer; provide Deepgram Nova-2 and local Whisper as default drop-ins. |
+| **Acoustic Feedback Loop** | Removed | AI's voice from speakers triggers mic | The AI never speaks; questions are read on screen. |
+| **VAD Premature Interruption** | HIGH | System cuts off user while pausing to think | 1.8 s silence window (adjustable) that only arms after speech is detected; `Space` for instant manual completion; recording continues while the model thinks so nothing is lost. |
+| **Lost final answer** | HIGH | User concludes mid-sentence and the last thought is dropped | On `Cmd+Enter` the in-progress audio is transcribed into the note before the summary runs. |
+| **Video Upload Latency** | MEDIUM | Large upload blocks the review screen | 720p at ~0.8 Mbps (about 90 MB per 15 min); the transcript-based summary appears first and the video analysis arrives in the background. |
+| **Context Source Offline** | MEDIUM | Screenpipe or Google hangs the interview | 2 s (Screenpipe) and 8 s (per Google account) timeouts; HUD notices; interview continues. |
+| **Interrupted Recording** | HIGH | App killed mid-session, corrupting the file | 3-second WebM chunks appended to disk as they arrive; partial files stay playable. |
+| **Dossier Corruption** | HIGH | A bad model rewrite erases accumulated context | Previous dossier copied to `dossier_history/` before every rewrite; empty or failed rewrites are rejected. |
+| **Local Server Exposure** | MEDIUM | Another device on the Wi-Fi reaches the app's server | Bound to `127.0.0.1` only. |
+| **Model Writes to Vault** | MEDIUM | A tool-calling model edits or moves the user's notes | The MCP tool list is filtered to read-only tools before the model sees it. |
+| **STT Engine Dependency** | LOW | Gemini transcription unavailable | Transcription is isolated in one small class (`GeminiTranscriber`) so another STT engine can be dropped in. |
 
 ---
 
 ## 10. Phased Implementation Roadmap
 
-### Phase 1: MVP & Core Loop (Target: Rapid One-Shot Delivery)
-* Native Python backend with `pywebview` HUD interface.
-* Webcam/Audio fragmented recording (720p H.264/AAC).
-* Turn-based conversational state machine with large-text question HUD.
-* Deepgram Nova-2 / Whisper STT + OpenAI / ElevenLabs TTS.
-* Post-session Gemini Flash multimodal delta analysis.
-* Automatic generation of Markdown dossiers in local/Google Drive sync folder.
-* 5-second Save/Discard review dialog.
+### Phase 1: MVP & Core Loop — shipped
+* Electron shell with large-text question HUD and setup/settings page.
+* Webcam/audio chunked recording (720p WebM) with audio-only fallback.
+* Turn-based conversational state machine with silence detection and `Space` override.
+* Gemini-native audio turns; Gemini Flash transcription for Claude and GPT.
+* Post-session Gemini multimodal delta analysis, run in the background.
+* Markdown session notes, time-indexed transcripts, and a backed-up Master Dossier in a local folder.
+* Save / Discard / Save & investigate review screen.
+* Setup wizard, encrypted key storage, per-user Google sign-in, Screenpipe detection.
+* Read-only file tools for Claude and GPT over the notes folder.
+* Four interview personas (Socratic, 5-Whys, GROW, Empathetic).
 
-### Phase 2: Integration Fabric & Downstream Querying (V1.1)
-* Client connection to Screenpipe MCP, Google Calendar, and Slack.
-* Embedded MCP Server exposing context tools to Antigravity and Claude.
-* Retroactive batch reprocessing tool for legacy video archives.
-* Configurable interview personas (Socratic, 5-Whys, GROW, Empathetic).
+### Phase 2: Cadence, Agenda & Reprocessing (V1.1) — next
+* Morning and evening modes with a pre-interview agenda built from calendar, mail and screen activity.
+* Retroactive batch reprocessing of archived recordings with newer models.
+* Resume a paused session after the app is closed.
+* Global shortcut to summon the HUD.
+* Slack as a context source.
+* A dedicated downstream MCP server, if and when the notes alone are not enough (see 7.4).
+* Signed and notarized DMG distribution.
 
 ### Phase 3: Duplex Streaming & Autonomous Proactivity (V2.0)
 * Continuous bidirectional duplex streaming audio & vision powered by **Google Project Astra**, **Fable**, or the Gemini Live Audio/Video Engine.
@@ -339,30 +359,40 @@ The user can select between 4 established interviewing methodologies to suit the
 * Autonomous background triggers and mid-day proactivity based on real-time Screenpipe activity.
 
 ---
+## 11. Implementation Reality (updated September 11, 2026)
+
+This section is the authoritative description of the shipped code. Where it disagrees with an earlier section, this section is right.
+
+### 11.1 Stack: Electron, not Python
+The MVP was built as an Electron app with a Node.js orchestrator (Express and `ws`) rather than the PyWebView/FastAPI stack proposed in the first draft. The Python files from that draft have been removed. Section 4 now describes the Electron design.
+
+### 11.2 The Hybrid Audio-Transcription Engine
+Gemini ingests raw audio natively; Anthropic's and OpenAI's chat APIs do not. To support Claude and GPT without adding latency, the system uses a hybrid engine:
+* When the user speaks, the turn's audio is sent to **Gemini 3.6 Flash** purely for transcription.
+* The transcript is appended to the chat history and passed to the selected model (Claude Sonnet 5, Claude Fable 5.1, GPT-4o or GPT-4o mini) for reasoning.
+* Gemini models skip this step and hear the audio directly, which also lets them note vocal cues.
+* For Gemini sessions, only the transcript (not the audio) is kept in the running history, so request size stays flat over a long session.
+
+### 11.3 Graceful Video Degradation
+* **With Gemini models:** after the text summary is shown, the session recording is uploaded to Gemini's Files API, analyzed for physical/verbal incongruence, deleted from Google, and the result is merged into the note on save.
+* **With Claude and OpenAI:** the recording is archived under the session id for future retroactive analysis, and the summary relies on the transcript.
+
+### 11.4 Read-Only File Tools over the Notes Folder
+A filesystem MCP server, bundled with the app and started with the app's own Node runtime (no internet or `npx` needed), is attached to the notes folder. Claude and GPT receive only its read and search tools; write, edit and move tools are filtered out. If the user mentions a project that is not in their Master Dossier, the model can read the matching note and respond in context. Gemini does not receive tools because its JSON response mode does not yet combine with function calling.
+
+### 11.5 Setup Wizard, Settings & Edge Cases
+* **Bring-Your-Own-Key:** users paste Gemini, Anthropic and OpenAI keys. Gemini is required; the others unlock their models. Keys are encrypted with Electron's `safeStorage` (macOS Keychain). Models whose key is missing are shown but disabled, with the missing key named.
+* **Google sign-in:** each user connects their own Google accounts through an OAuth sign-in in the browser. The app distributor supplies the Google OAuth client file and publishes the consent screen to production; the README explains how. The app stays unverified, which Google allows for up to 100 accounts: users click through a one-time "Google hasn't verified this app" warning and their connection does not expire weekly. Gmail read access is kept because email is among the most valuable context for most people.
+* **Screenpipe independence:** if Screenpipe's `db.sqlite` is not found, it is marked optional and the interview runs without screen context.
+* **Obsidian independence:** if no vault is chosen, notes go to `~/Documents/MadroneContext`. The recordings folder defaults to `archives/` inside the notes folder and can be moved outside a synced vault.
+* **Camera independence:** without a camera the session records audio only.
+
+### 11.6 Session Lifecycle Guarantees
+* The microphone records continuously between turns; speech during "thinking" carries into the next turn.
+* `Shift+Esc` pauses both recorders in place; resuming does not resend anything.
+* `Cmd+Enter` transcribes the utterance in progress, closes the recording, shows the summary, and releases the camera. The camera light goes off as soon as the session ends.
+* Save writes the note, backs up and rewrites the Master Dossier, and waits for a pending video analysis first. Discard deletes the recording and writes nothing. After either, the user can start a new session or quit from the same screen.
+* The local server accepts connections only from the same machine.
+
+---
 *End of Product Requirement Document.*
-
-## 11. Implementation Reality & Updated Architecture (Sept 2026)
-
-Based on the initial MVP deployment, the architecture has been refined to address real-world API constraints and to maximize out-of-the-box user experience.
-
-### 11.1 The Hybrid Audio-Translation Engine
-While Anthropic's Claude 3.5 and OpenAI's GPT-4o are offered as top-tier reasoning engines, their APIs do not natively ingest raw streaming audio bytes like Google GenAI. To support these models without compromising latency, the system utilizes a **Hybrid Engine**:
-* When a user speaks, the audio bytes are intercepted and passed to a lightweight **Gemini 3.6 Flash** instance purely for zero-latency transcription.
-* The resulting transcript is seamlessly appended to the chat history and passed to the user's selected model (Claude/Fable/GPT-4o) for cognitive reasoning.
-
-### 11.2 Graceful Video Degradation
-Because Claude and OpenAI currently lack native video-file ingestion endpoints, the end-of-session background video processing gracefully degrades:
-* **With Gemini Models:** The background `.webm` video is uploaded and analyzed for physical/verbal incongruence (Delta Analysis).
-* **With Claude/OpenAI:** The video is still securely archived to the local Obsidian vault for future retroactive processing, but the immediate post-session summary relies entirely on verbal transcripts to update the Master Dossier.
-
-### 11.3 MCP Agentic Integration (The Deep Path)
-The Orchestrator has been upgraded from a static chatbot to a dynamic MCP client. 
-* A local **Model Context Protocol (MCP) File System Server** is spun up in the background and attached to the user's Obsidian Vault.
-* Claude and GPT-4o are equipped with native `tool_calls`. If the user asks about a specific project not in their Master Dossier, the model will autonomously execute a local file read via MCP, ingest the markdown note, and respond contextually.
-
-### 11.4 Auto-Discovery Setup Wizard & Edge Cases
-The onboarding flow has been entirely rebuilt to accommodate users with varying tech stacks:
-* **Bring-Your-Own-Key (BYOK):** Users paste API keys for Gemini, Anthropic, or OpenAI. *Gemini is strictly required* to power the base transcription layer, while Claude and OpenAI are optional upgrades.
-* **Screenpipe Independence:** If Screenpipe's `db.sqlite` is not found, the app gracefully marks it as "Optional" and bypasses rearward OCR context.
-* **Obsidian Independence:** If the user does not have an `.obsidian` vault, the app defaults to saving raw markdown files in `~/Documents/MadroneContext`.
-

@@ -1,23 +1,22 @@
 {
   "name": "madronecontext",
   "version": "1.0.0",
-  "description": "",
+  "description": "Interview-based context capture: a short spoken interview that turns your reasoning into Markdown notes for you and your AI tools.",
   "main": "main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "electron .",
-    "build": "electron-builder"
+    "test": "node test/smoke.js",
+    "build": "electron-builder --mac"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "John Honchariw",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
     "@google/genai": "^2.21.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
+    "@modelcontextprotocol/server-filesystem": "^2026.8.31",
     "electron-store": "^8.2.0",
     "express": "^5.2.1",
     "googleapis": "^178.1.1",
@@ -27,13 +26,32 @@
   "build": {
     "appId": "com.madrone.context",
     "productName": "Madrone Context",
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "frontend/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      "google_oauth_client*.json"
+    ],
+    "asarUnpack": [
+      "node_modules/@modelcontextprotocol/server-filesystem/**"
+    ],
     "mac": {
       "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ],
+      "icon": "build/icon.png",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
-        "NSCameraUsageDescription": "This app requires camera access to analyze video context during the interview.",
-        "NSMicrophoneUsageDescription": "This app requires microphone access to hear your spoken answers during the interview."
-      },
-      "icon": "build/icon.png"
+        "NSCameraUsageDescription": "Madrone Context records video during an interview so a model can compare what you say with how you say it.",
+        "NSMicrophoneUsageDescription": "Madrone Context needs the microphone to hear your spoken answers."
+      }
     },
     "dmg": {
       "icon": "build/icon.png"

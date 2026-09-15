@@ -1,7 +1,11 @@
 node_modules/
 dist/
-archives/
 .env
-build/
 .DS_Store
-__pycache__/
+*.log
+
+# Your Google OAuth client file (see README, "Google sign-in"). Never commit it.
+google_oauth_client*.json
+
+# Local Electron settings created by `npm start`
+.madrone-context/
