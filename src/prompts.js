@@ -20,7 +20,17 @@ const PERSONAS = {
   }
 };
 
-function systemPrompt({ persona, dossier, hasVault }) {
+function knownEntitiesText(known) {
+  if (!known) return '';
+  const parts = [];
+  for (const [kind, label] of [['people', 'People'], ['projects', 'Projects'], ['topics', 'Topics']]) {
+    const names = (known[kind] || []).slice(0, 40);
+    if (names.length) parts.push(`${label}: ${names.join('; ')}`);
+  }
+  return parts.join('\n');
+}
+
+function systemPrompt({ persona, dossier, hasVault, known }) {
   const p = PERSONAS[persona] || PERSONAS.socratic;
   let text = `${p.prompt}
 
@@ -44,6 +54,14 @@ If the user says they want to wrap up or finish, acknowledge it briefly and ask 
 
 You may have file tools that can read the user's notes folder. Use them only when the user refers to a specific project, person or document you know nothing about, and only read; never create, edit or move files.`;
   }
+  const knownText = knownEntitiesText(known);
+  if (knownText) {
+    text += `
+
+People, projects and topics that already have notes in the user's vault (use these exact names when you refer to them):
+${knownText}
+When the user mentions one of them, you may be given the note's contents; use it to ask sharper, more specific questions.`;
+  }
   if (dossier) {
     text += `
 
@@ -60,6 +78,11 @@ const AUDIO_TURN_PROMPT = 'The user just spoke. Transcribe what they said and re
 
 function transcriptTurnPrompt(transcript) {
   return `The user just spoke. Here is the transcript of what they said:\n"""\n${transcript}\n"""\nRespond to them using the JSON format from your instructions.`;
+}
+
+function vaultContextNote(items) {
+  if (!items || items.length === 0) return '';
+  return '\n\n' + items.map(it => `[From the user's notes: "${it.name}" (${it.kind})]\n${it.text}`).join('\n\n') + '\n\nUse this only where it is relevant to what the user just said.';
 }
 
 const WIND_DOWN_NOTE = '\n\n(Time note: the session has passed its soft time limit. Steer toward a natural summary. Ask at most one or two more questions, then invite the user to conclude.)';
@@ -83,17 +106,24 @@ function contextFollowupPrompt(kind, contextText) {
 
 const OBSIDIAN_STYLE = 'Write in Obsidian-flavoured Markdown. Use [[wikilinks]] for key projects, people and concepts, and #tags for broad categories. Do NOT include YAML frontmatter and do NOT wrap the JSON in a code fence.';
 
-function textSummaryPrompt() {
-  return `The session has concluded. Output a JSON object with exactly two keys:
+function textSummaryPrompt(known) {
+  const knownText = knownEntitiesText(known);
+  return `The session has concluded. Output a JSON object with exactly these keys:
 "summary": a thorough Markdown summary of what the user talked about, organized under "Primary objective", "Underlying drivers", "Explicit constraints" and "Open threads";
-"insights": a Markdown bulleted list of the most interesting insights from the conversation (motivations, tensions, decisions, emotional tone you could infer from the words).
-${OBSIDIAN_STYLE} Output raw JSON only.`;
+"insights": a Markdown bulleted list of the most interesting insights from the conversation (motivations, tensions, decisions, emotional tone you could infer from the words);
+"people": a list of the people the user discussed, each as {"name": "Full name as the user would write it", "note": "one sentence on their role in what was discussed"};
+"projects": a list of the projects, companies, products or initiatives discussed, each as {"name": "...", "note": "one sentence"};
+"topics": a list of up to five recurring themes (for example "Hiring", "Burnout", "Pricing"), each as {"name": "...", "note": "one sentence"};
+"energy": one of "high", "neutral" or "depleted", judged from the words;
+"confidence": an integer from 1 to 10 for how confident the user sounded overall about what they discussed.
+${knownText ? `Existing notes already use these names; reuse them exactly when they refer to the same person, project or topic, and add new ones only when genuinely new:\n${knownText}\n` : ''}Do not put people, projects or topics in the summary as [[wikilinks]] unless they appear in your lists; in the summary and insights, refer to listed names with [[wikilinks]] so Obsidian connects them. ${OBSIDIAN_STYLE} Output raw JSON only.`;
 }
 
 function videoAnalysisPrompt() {
   return `Attached is the background video recording of the user during this session. Analyze their body language, facial expression, energy and voice against what they said. Output a JSON object with exactly two keys:
 "insights": a Markdown bulleted list of behavioral observations tied to specific topics (confidence, hesitation, stress, excitement, energy dips);
-"synergy_diff": a Markdown analysis of where the user's words and their physical cues agreed or diverged, with a short "Detected incongruence" section listing any topic where stated confidence did not match visible cues, or "None detected".
+"synergy_diff": a Markdown analysis of where the user's words and their physical cues agreed or diverged, with a short "Detected incongruence" section listing any topic where stated confidence did not match visible cues, or "None detected";
+"incongruence": true if at least one clear incongruence was detected, otherwise false.
 ${OBSIDIAN_STYLE} Output raw JSON only.`;
 }
 
@@ -123,5 +153,7 @@ module.exports = {
   contextFollowupPrompt,
   textSummaryPrompt,
   videoAnalysisPrompt,
-  dossierUpdatePrompt
+  dossierUpdatePrompt,
+  vaultContextNote,
+  knownEntitiesText
 };

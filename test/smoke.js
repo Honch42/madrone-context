@@ -22,7 +22,13 @@ class FakeProvider {
   async respond(text) {
     this.calls.push(['respond', text]);
     if (/started a session|Master Dossier/.test(text)) return JSON.stringify({ transcript: '[Session started]', question: 'What is on your mind today?' });
-    if (/session has concluded/.test(text)) return '```json\n' + JSON.stringify({ summary: '## Primary objective\nShip the thing.', insights: '- Cares about friends' }) + '\n```';
+    if (/session has concluded/.test(text)) return '```json\n' + JSON.stringify({
+      summary: '## Primary objective\nShip [[Madrone Context]] to friends.', insights: '- Cares about friends',
+      people: [{ name: 'Jane Doe', note: 'A friend who will test the app' }],
+      projects: [{ name: 'Madrone Context', note: 'The interview app' }, { name: 'madrone context', note: 'duplicate spelling' }],
+      topics: [{ name: 'Distribution', note: 'Getting the app to friends' }],
+      energy: 'high', confidence: 8
+    }) + '\n```';
     return JSON.stringify({ transcript: '[Context loaded]', question: 'Follow-up after context?' });
   }
   async respondToAudio(buffer, mime, note) {
@@ -32,12 +38,21 @@ class FakeProvider {
     return { raw: 'Not JSON at all', parsed: null, transcript: 'Second answer' };
   }
   async transcribe(buffer, mime) { this.calls.push(['transcribe', buffer.length, mime]); return 'Final words before concluding.'; }
-  async analyzeVideo(filePath, prompt) { this.calls.push(['video', fs.statSync(filePath).size]); return JSON.stringify({ insights: '- Leaned in when talking about friends', synergy_diff: 'Words and posture agreed.\n\nDetected incongruence: none' }); }
+  async analyzeVideo(filePath, prompt) { this.calls.push(['video', fs.statSync(filePath).size]); return JSON.stringify({ insights: '- Leaned in when talking about friends', synergy_diff: 'Words and posture agreed.\n\nDetected incongruence: none', incongruence: false }); }
   async oneShot(prompt) { this.calls.push(['oneShot', prompt.length]); return '# Master Dossier\n\n## Current goals\n- Ship the app to friends\n\n## Recent sessions\n- one'; }
 }
 let fake = null;
 providers.createProvider = () => { fake = new FakeProvider(); return fake; };
 
+const storage = require('../src/storage');
+// A legacy layout (files at the notes-folder root) and an existing entity note the
+// model should reuse, inside a folder that looks like an Obsidian vault.
+fs.mkdirSync(path.join(tmp, 'vault', '.obsidian'), { recursive: true });
+fs.mkdirSync(path.join(tmp, 'vault', 'sessions'), { recursive: true });
+fs.writeFileSync(path.join(tmp, 'vault', 'master_dossier.md'), '# Old dossier\n');
+fs.writeFileSync(path.join(tmp, 'vault', 'sessions', 'old_session.md'), 'old');
+fs.mkdirSync(path.join(tmp, 'vault', 'Madrone', 'People'), { recursive: true });
+fs.writeFileSync(path.join(tmp, 'vault', 'Madrone', 'People', 'Jane Doe.md'), '---\ntype: person\n---\n# Jane Doe\n\nJane runs the beta group.\n\n## Mentions\n- [[2026-01-01_0900_session|earlier]]: first mention\n');
 const { startServer } = require('../src/server');
 const discover = require('../src/discover');
 
@@ -89,6 +104,7 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   assert(/^\d{4}-\d{2}-\d{2}_\d{4}$/.test(session.session_id), `session id looks like a date: ${session.session_id}`);
   const q1 = await next('question');
   assert(q1.text === 'What is on your mind today?', 'opening question delivered');
+  assert(fs.existsSync(path.join(tmp, 'vault', 'Madrone', 'master_dossier.md')) && fs.existsSync(path.join(tmp, 'vault', 'Madrone', 'Sessions', 'old_session.md')) && !fs.existsSync(path.join(tmp, 'vault', 'master_dossier.md')), 'legacy files migrated into Madrone/');
 
   // Stream a fake recording to the archive socket.
   const archive = new WebSocket(`${base}/ws/archive?session=${session.session_id}&kind=video`);
@@ -113,6 +129,16 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   ws.send(Buffer.alloc(5000, 2));
   const q3 = await next('question');
   assert(q3.text === 'Not JSON at all' && q3.transcript === 'Second answer', 'turn 2 falls back to raw text');
+  // (turn 1 transcript mentioned no known entity; make turn 3 mention Jane and check the note arrives on turn 4)
+  fake.respondToAudio = async (buffer, mime, note) => { fake.calls.push(['audio', buffer.length, mime, note]); return { raw: '{"transcript":"I talked to Jane Doe about the beta.","question":"How did that go?"}', parsed: { transcript: 'I talked to Jane Doe about the beta.', question: 'How did that go?' }, transcript: 'I talked to Jane Doe about the beta.' }; };
+  ws.send(JSON.stringify({ type: 'audio_meta', mime: 'audio/webm' }));
+  ws.send(Buffer.alloc(5000, 4));
+  await next('question');
+  ws.send(JSON.stringify({ type: 'audio_meta', mime: 'audio/webm' }));
+  ws.send(Buffer.alloc(5000, 5));
+  await next('question');
+  const last = fake.calls.filter(c => c[0] === 'audio').pop();
+  assert(last[3].includes('Jane runs the beta group'), 'mentioning a known person hands her note to the interviewer on the next turn');
   assert(fake.calls.find(c => c[0] === 'audio' && c[3] && c[3].includes('soft time limit')), 'wind-down note was attached after time_check');
 
   // Conclude mid-answer: the final utterance is transcribed but gets no question.
@@ -121,7 +147,7 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   archive.close();
   ws.send(JSON.stringify({ type: 'end_session' }));
   const review = await next('review');
-  assert(review.summary.includes('Ship the thing'), 'summary parsed out of a fenced JSON reply');
+  assert(review.summary.includes('Ship [[Madrone Context]]'), 'summary parsed out of a fenced JSON reply');
   assert(review.video_status === 'pending', 'video analysis is pending on a Gemini model');
   assert(review.transcript.some(t => t.role === 'user' && t.text === 'Final words before concluding.'), 'final utterance landed in the transcript');
   const analysis = await next('analysis');
@@ -132,12 +158,20 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   assert(fs.existsSync(saved.note_path), `note written: ${saved.note_path}`);
   const note = fs.readFileSync(saved.note_path, 'utf-8');
   assert(note.startsWith('---\nsession_id: ' + session.session_id), 'note frontmatter carries the session id');
-  assert(note.includes('recording: "archives/'), 'note links to the recording by relative path');
+  assert(note.includes('recording: "Madrone/archives/'), 'note links to the recording by vault-relative path');
+  assert(note.includes(`![[${session.session_id}_video.webm]]`), 'note embeds the recording for inline playback');
+  assert(note.includes('people:\n  - "[[Jane Doe]]"') && note.includes('projects:\n  - "[[Madrone Context]]"\ntopics:') && note.includes('energy: "high"') && note.includes('confidence: 8') && note.includes('incongruence: false'), 'note properties carry links and scores');
+  assert(saved.entities.projects.length === 1, 'duplicate spelling of a project collapsed onto one note');
+  const jane = fs.readFileSync(path.join(tmp, 'vault', 'Madrone', 'People', 'Jane Doe.md'), 'utf-8');
+  assert(jane.includes('first mention') && jane.includes(`[[${session.session_id}_session|`) && jane.includes('A friend who will test the app'), 'existing person note gained a mention line and kept its history');
+  assert(fs.existsSync(path.join(tmp, 'vault', 'Madrone', 'Projects', 'Madrone Context.md')) && fs.existsSync(path.join(tmp, 'vault', 'Madrone', 'Topics', 'Distribution.md')), 'new project and topic notes created');
+  assert(saved.base_created && fs.readFileSync(path.join(tmp, 'vault', 'Madrone', 'Madrone Sessions.base'), 'utf-8').includes('file.hasTag("madrone-session")'), 'Bases file written');
+  assert(saved.obsidian_url && saved.obsidian_url.startsWith('obsidian://open?path='), 'saved message carries an Obsidian link inside a vault');
   assert(note.includes('**00:00 AI:** What is on your mind today?') && note.includes('You:** I want to ship'), 'transcript is time-indexed');
   assert(note.includes('From the video'), 'video insights merged into the note');
-  const dossier = fs.readFileSync(path.join(tmp, 'vault', 'master_dossier.md'), 'utf-8');
+  const dossier = fs.readFileSync(path.join(tmp, 'vault', 'Madrone', 'master_dossier.md'), 'utf-8');
   assert(dossier.includes('Ship the app to friends') && saved.dossier_updated, 'dossier rewritten');
-  const video = path.join(tmp, 'vault', 'archives', session.session_id.slice(0, 4), session.session_id.slice(5, 7), `${session.session_id}_video.webm`);
+  const video = path.join(tmp, 'vault', 'Madrone', 'archives', session.session_id.slice(0, 4), session.session_id.slice(5, 7), `${session.session_id}_video.webm`);
   assert(fs.statSync(video).size === 50000, 'recording streamed to archives/YYYY/MM with the session id');
 
   // Second session: discard deletes the recording.
@@ -154,9 +188,9 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   ws.send(JSON.stringify({ type: 'discard_session' }));
   const discarded = await next('discarded');
   assert(discarded.removed.length === 1 && !fs.existsSync(discarded.removed[0]), 'discard deleted the recording');
-  assert(!fs.existsSync(path.join(tmp, 'vault', 'sessions', `${s2.session_id}_session.md`)), 'discard wrote no note');
-  const history = fs.readdirSync(path.join(tmp, 'vault', 'dossier_history'));
-  assert(history.length === 0, 'no dossier backup exists before the first rewrite (first save had none to back up)');
+  assert(!fs.existsSync(path.join(tmp, 'vault', 'Madrone', 'Sessions', `${s2.session_id}_session.md`)), 'discard wrote no note');
+  const history = fs.readdirSync(path.join(tmp, 'vault', 'Madrone', 'dossier_history'));
+  assert(history.length === 1, 'the migrated legacy dossier was backed up before the first rewrite');
 
   ws.close();
   server.close();

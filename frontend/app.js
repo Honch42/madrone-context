@@ -650,9 +650,13 @@ function showDone(data) {
   }
   ui.pendingInvestigate = false;
   $('done-title').innerText = 'Saved';
-  $('done-text').innerText = data.dossier_updated
-    ? `Session note saved and your Master Dossier updated.\n${data.note_path}`
-    : `Session note saved.\n${data.note_path}`;
+  const linked = data.entities ? [...(data.entities.people || []), ...(data.entities.projects || []), ...(data.entities.topics || [])] : [];
+  const linkedText = linked.length ? `\nLinked notes: ${linked.slice(0, 6).join(', ')}${linked.length > 6 ? ` and ${linked.length - 6} more` : ''}.` : '';
+  $('done-text').innerText = (data.dossier_updated
+    ? `Session note saved and your Master Dossier updated.`
+    : `Session note saved.`) + linkedText + `\n${data.note_path}`;
+  ui.lastObsidianUrl = data.obsidian_url || null;
+  $('btn-open-obsidian').hidden = !(window.electronAPI && data.obsidian_url);
   $('btn-show-note').hidden = !window.electronAPI;
   $('google-suggest').hidden = !(window.electronAPI && ui.status && ui.status.suggestGoogle);
   showOverlay('done-screen');
@@ -764,6 +768,7 @@ $('btn-discard').addEventListener('click', () => {
 $('btn-new-session').addEventListener('click', resetToStart);
 $('btn-quit').addEventListener('click', () => { if (window.electronAPI) window.electronAPI.quitApp(); else resetToStart(); });
 $('btn-show-note').addEventListener('click', () => { if (window.electronAPI && ui.lastNotePath) window.electronAPI.showPath(ui.lastNotePath); });
+$('btn-open-obsidian').addEventListener('click', () => { if (window.electronAPI && ui.lastNotePath) window.electronAPI.openInObsidian(ui.lastNotePath); });
 
 window.addEventListener('beforeunload', () => releaseMedia());
 
