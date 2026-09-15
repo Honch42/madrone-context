@@ -8,6 +8,7 @@ const fs = require('fs');
 
 const config = require('./src/config');
 const legacy = require('./src/legacy');
+const discover = require('./src/discover');
 const googleCtx = require('./src/google');
 const screenpipe = require('./src/screenpipe');
 const { startServer } = require('./src/server');
@@ -23,8 +24,8 @@ function showApp() {
   if (mainWindow) mainWindow.loadURL(pageUrl('index.html'));
 }
 
-function showSettings(mode) {
-  if (mainWindow) mainWindow.loadURL(pageUrl('settings.html', `?mode=${mode}`));
+function showSettings(mode, focus) {
+  if (mainWindow) mainWindow.loadURL(pageUrl('settings.html', `?mode=${mode}${focus ? `&focus=${encodeURIComponent(focus)}` : ''}`));
 }
 
 function mediaStatus() {
@@ -42,6 +43,7 @@ function statusPayload() {
   return {
     platform: process.platform,
     keys: { gemini: !!keys.gemini, anthropic: !!keys.anthropic, openai: !!keys.openai },
+    anthropicAuth: settings.anthropicAuth,
     encryption: config.encryptionAvailable(),
     workspaceDir: settings.workspaceDir,
     mediaDir: settings.mediaDir,
@@ -62,11 +64,35 @@ ipcMain.handle('get-status', () => statusPayload());
 ipcMain.handle('set-secret', (event, name, value) => {
   if (!config.SECRET_NAMES.includes(name)) throw new Error('Unknown secret.');
   config.setSecret(name, value);
+  if (name === 'anthropicApiKey' && value) config.setSetting('anthropicAuth', 'key');
   return statusPayload();
 });
 
+// Keys already on this Mac. Values stay in the main process; the page only
+// sees masked previews and picks one by id.
+ipcMain.handle('detect-keys', () => discover.discover());
+
+ipcMain.handle('use-detected-key', (event, id) => {
+  const hit = discover.resolve(id);
+  if (!hit) throw new Error('That key is no longer available. Try again.');
+  const name = { gemini: 'geminiApiKey', anthropic: 'anthropicApiKey', openai: 'openaiApiKey' }[hit.vendor];
+  config.setSecret(name, hit.value);
+  if (hit.vendor === 'anthropic') config.setSetting('anthropicAuth', 'key');
+  return statusPayload();
+});
+
+ipcMain.handle('use-anthropic-profile', () => {
+  if (!discover.anthropicProfile().found) throw new Error('No Anthropic CLI sign-in was found. Run `ant auth login` in Terminal first.');
+  config.setSetting('anthropicAuth', 'profile');
+  return statusPayload();
+});
+
+ipcMain.handle('dismiss-google-suggestion', () => { config.setSetting('googleSuggestionDismissed', true); return statusPayload(); });
+
+ipcMain.handle('forget-everything', () => { config.forgetEverything(); showSettings('wizard'); });
+
 ipcMain.handle('set-setting', (event, name, value) => {
-  const allowed = ['silenceSeconds', 'sessionMinutesSoftLimit'];
+  const allowed = ['silenceSeconds', 'sessionMinutesSoftLimit', 'anthropicAuth'];
   if (!allowed.includes(name)) throw new Error('Unknown setting.');
   config.setSetting(name, value);
   return statusPayload();
@@ -150,6 +176,16 @@ ipcMain.handle('request-media', async () => {
   return mediaStatus();
 });
 
+ipcMain.handle('request-microphone', async () => {
+  if (process.platform === 'darwin') await systemPreferences.askForMediaAccess('microphone');
+  return mediaStatus();
+});
+
+ipcMain.handle('request-camera', async () => {
+  if (process.platform === 'darwin') await systemPreferences.askForMediaAccess('camera');
+  return mediaStatus();
+});
+
 ipcMain.handle('open-privacy-settings', (event, kind) => {
   const anchor = kind === 'camera' ? 'Privacy_Camera' : 'Privacy_Microphone';
   return shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${anchor}`);
@@ -160,8 +196,12 @@ ipcMain.handle('open-external', (event, url) => {
 });
 
 ipcMain.handle('complete-wizard', () => { config.setSetting('hasCompletedWizard', true); showApp(); });
-ipcMain.handle('open-app', () => showApp());
-ipcMain.handle('open-settings', () => showSettings('settings'));
+ipcMain.handle('open-app', () => {
+  // Finishing setup from the full settings page counts once the essentials are in place.
+  if (config.getKeys().gemini && mediaStatus().microphone === 'granted') config.setSetting('hasCompletedWizard', true);
+  showApp();
+});
+ipcMain.handle('open-settings', (event, focus) => showSettings('settings', focus));
 ipcMain.on('quit-app', () => app.quit());
 
 // ---------------------------------------------------------------------------

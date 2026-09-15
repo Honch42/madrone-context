@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Madrone Context</title>
-    <link rel="stylesheet" href="style.css?v=5">
+    <link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
     <div id="drag-region"></div>
@@ -49,6 +49,23 @@
         <h1>Madrone Context</h1>
         <p class="muted">A short spoken interview. Speak freely; pause for a moment or press <span class="key">Space</span> when you've finished a thought.</p>
         <p id="start-hint" class="muted small"></p>
+
+        <div id="key-panel" class="panel" hidden>
+            <p id="key-panel-text" class="panel-text"></p>
+            <ul id="key-panel-found" class="panel-list"></ul>
+            <div class="panel-row">
+                <input type="password" id="key-panel-input" placeholder="Paste the key" autocomplete="off">
+                <button id="key-panel-save" class="btn btn-quiet" type="button">Save</button>
+                <button id="key-panel-link" class="btn btn-quiet" type="button">Get a key</button>
+            </div>
+            <p id="key-panel-msg" class="muted small"></p>
+        </div>
+
+        <label id="camera-row" class="camera-row" hidden>
+            <input type="checkbox" id="camera-toggle">
+            <span id="camera-label">Also record video, so Gemini can compare what you say with how you look and sound. Never shown on screen.</span>
+        </label>
+
         <button id="btn-start" class="btn btn-primary btn-large" type="button">Begin session</button>
     </section>
 
@@ -89,6 +106,13 @@
     <section id="done-screen" class="overlay" hidden>
         <h2 id="done-title">Saved</h2>
         <p id="done-text" class="muted"></p>
+        <div id="google-suggest" class="panel suggest" hidden>
+            <p class="panel-text">Want the interviewer to know your calendar and email next time? Connect a Google account and it can pull in what's coming up when you ask. Read-only, and you can disconnect at any time.</p>
+            <div class="panel-row">
+                <button id="btn-suggest-google" class="btn btn-primary" type="button">Connect Google</button>
+                <button id="btn-suggest-later" class="btn btn-quiet" type="button">Not now</button>
+            </div>
+        </div>
         <div class="button-row">
             <button id="btn-show-note" class="btn btn-quiet" type="button" hidden>Show note in Finder</button>
             <button id="btn-new-session" class="btn btn-primary" type="button">New session</button>
@@ -100,6 +124,6 @@
 
     <video id="hidden-video" autoplay muted playsinline hidden></video>
 
-    <script src="app.js?v=30"></script>
+    <script src="app.js?v=31"></script>
 </body>
 </html>

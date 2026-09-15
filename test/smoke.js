@@ -39,10 +39,17 @@ let fake = null;
 providers.createProvider = () => { fake = new FakeProvider(); return fake; };
 
 const { startServer } = require('../src/server');
+const discover = require('../src/discover');
 
 function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.exit(1); } console.log('ok -', msg); }
 
 (async () => {
+  // Key discovery: dotenv parsing and key-shape checks.
+  const env = discover.parseDotenv('# comment\nexport ANTHROPIC_API_KEY="sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123"\nGEMINI_API_KEY=AIzaSyA1234567890abcdefghijklmnop # trailing\nOPENAI_API_KEY=\'sk-proj-abcdefghijklmnopqrstuvwxyz\'\nJUNK');
+  assert(env.ANTHROPIC_API_KEY.startsWith('sk-ant-') && env.GEMINI_API_KEY === 'AIzaSyA1234567890abcdefghijklmnop' && env.OPENAI_API_KEY.startsWith('sk-proj'), 'dotenv parsing handles export, quotes and comments');
+  assert(discover.looksLikeKey('gemini', env.GEMINI_API_KEY) && discover.looksLikeKey('anthropic', env.ANTHROPIC_API_KEY) && !discover.looksLikeKey('anthropic', env.OPENAI_API_KEY), 'key shapes are vendor-specific');
+  assert(discover.mask(env.ANTHROPIC_API_KEY) === 'sk-ant-…0123', 'masked preview shows only the ends');
+
   const { port, server } = await startServer();
   const base = `ws://127.0.0.1:${port}`;
   const ws = new WebSocket(`${base}/ws/orchestrator`);

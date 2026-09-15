@@ -37,16 +37,34 @@ A short spoken interview with an AI that asks you *why*. It records your answers
 
 ## First run
 
-The setup screen asks for:
+The setup screen asks for two things:
 
-1. **Microphone and camera access.** The microphone is required. Without the camera the app records audio only and skips video analysis.
-2. **A Gemini API key.** Required.
-3. **Anthropic and OpenAI keys.** Optional.
-4. **Notes folder.** Defaults to `~/Documents/MadroneContext`. Change it to your Obsidian vault if you have one.
-5. **Recordings folder.** Defaults to `archives/` inside the notes folder.
-6. **Screenpipe and Google accounts.** Optional. See "Google sign-in" below.
+1. **Microphone access.** Required; the interview cannot hear you without it.
+2. **A Gemini API key.** Required. If you already have one on this Mac (in your shell environment, the Gemini CLI, or a `.env` file), the app finds it and offers to use it with one click. Otherwise paste one; the "Get a free key" link takes you to Google AI Studio.
 
-Keys are stored encrypted in your macOS Keychain. You can change all of this later from the **Settings** button.
+Then press **Start**. Everything else is optional and the app offers it when it would help:
+
+- **Camera** is a checkbox on the start screen. macOS asks for access the first time you begin a session with it on.
+- **Claude and GPT** models appear in the model menu. Pick one and the app asks for that vendor's key right there, offering any key it finds on your Mac first. If you use the Anthropic CLI (`ant auth login`), Claude models can use that sign-in with no key at all.
+- **Google accounts** are suggested once after your first saved session, and offered again whenever you ask an interview about your calendar or email before an account is connected.
+- **Screenpipe** is detected automatically if installed.
+
+Keys are stored encrypted in your macOS Keychain. Everything can be changed later from the **Settings** button, which also has a "What this app can see" section and a **Forget everything** button that removes every key and connection while leaving your notes alone.
+
+### Where the app looks for existing keys
+
+Most people who already have API keys keep them in one of these places, and the app checks all of them (it never uses one without you clicking "Use this key"):
+
+| Where | What it looks for |
+|---|---|
+| Your login shell's environment (`~/.zshrc`, `~/.zprofile`, `~/.bashrc`, `~/.bash_profile`) | `GEMINI_API_KEY` or `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` |
+| `~/.gemini/.env` (Gemini CLI) and `~/.env` | the same variable names |
+| `~/.claude/settings.json` (Claude Code), `env` block | `ANTHROPIC_API_KEY` |
+| `~/.codex/auth.json` (Codex CLI) | `OPENAI_API_KEY` |
+| `~/.config/anthropic/` (Anthropic CLI, `ant auth login`) | an active sign-in profile, used directly instead of a key |
+| macOS Keychain, service `AntiGravity` | keys stored by an earlier version of this app |
+
+Sign-ins from Claude Code, the Gemini CLI's "Login with Google", and ChatGPT-plan Codex logins are subscription credentials, not API keys, and cannot be used with the APIs this app calls. Only the Anthropic CLI's profile works that way.
 
 ## Running an interview
 
@@ -117,9 +135,9 @@ Connecting a Google account lets the interviewer pull in your upcoming calendar,
 5. **APIs & Services > Credentials > Create credentials > OAuth client ID**: application type **Desktop app**. Download the JSON.
 6. Save the file as `google_oauth_client.json` in the project folder (it is git-ignored), or choose it from **Settings > Google accounts > Choose client file** on each Mac. A DMG built with `npm run build` includes the file automatically.
 
-Then each person clicks **Connect account** in Settings and signs in with Google in their browser.
+Then each person clicks **Connect account** in Settings. Before the browser opens, the app shows exactly what it will read and what the Google warning page looks like, so nobody is surprised.
 
-**What friends will see.** Because the app is not verified by Google, the sign-in page shows a warning titled "Google hasn't verified this app". That is expected. They click **Advanced**, then **Go to Madrone Context (unsafe)**, and continue. It only happens once per account. Warn them in advance so it doesn't look alarming.
+**What friends will see.** Because the app is not verified by Google, the sign-in page shows a warning titled "Google hasn't verified this app". That is expected. They click **Advanced**, then **Go to Madrone Context (unsafe)**, and continue. It only happens once per account.
 
 **The limits.** An unverified app is capped at 100 Google accounts for the lifetime of the Cloud project, and the cap cannot be reset. That is plenty for friends and family. Going past it, or removing the warning screen, means Google's verification process; because Gmail is a "restricted" scope, that includes an annual paid security assessment (roughly $500 to $4,500 a year), which is not worth it at this scale. Connections can still lapse if an account is unused for six months or the person changes their Google password; the app then shows "needs reconnecting" in Settings and one click fixes it.
 

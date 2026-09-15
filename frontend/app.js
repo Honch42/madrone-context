@@ -71,12 +71,34 @@ function showOverlay(id) {
   for (const s of ['start-screen', 'error-screen', 'review-screen', 'done-screen']) $(s).hidden = s !== id;
 }
 
-function notify(text, level = 'info', ms = 9000) {
+const NOTICE_ACTIONS = {
+  connect_google: { label: 'Connect Google', focus: 'google' },
+  screenpipe: { label: 'Set up Screenpipe', focus: 'screenpipe' }
+};
+
+function notify(text, level = 'info', ms = 9000, action = null) {
   const el = document.createElement('div');
   el.className = 'notice' + (level === 'error' ? ' error' : '');
-  el.innerText = text;
+  const span = document.createElement('span');
+  span.innerText = text;
+  el.appendChild(span);
+  const act = action && NOTICE_ACTIONS[action];
+  if (act && window.electronAPI) {
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'btn btn-quiet'; btn.innerText = act.label;
+    btn.onclick = () => openSettingsFor(act.focus);
+    el.appendChild(btn);
+    ms = Math.max(ms, 20000);
+  }
   $('notices').appendChild(el);
   setTimeout(() => el.remove(), ms);
+}
+
+function openSettingsFor(focus) {
+  if (!window.electronAPI) return;
+  if (['listening', 'thinking', 'starting', 'ending'].includes(ui.state) && !confirm('Leave this session to open Settings? The recording so far is kept, but the conversation will not be summarized or saved.')) return;
+  cleanupConnections();
+  window.electronAPI.openSettings(focus);
 }
 
 function formatClock(seconds) {
@@ -98,18 +120,20 @@ async function loadCatalog() {
       fetch('/api/models').then(r => r.json()),
       fetch('/api/status').then(r => r.json())
     ]);
+    ui.catalog = models.models;
+    ui.status = status;
     modelSelect.innerHTML = '';
     for (const m of models.models) {
       const opt = document.createElement('option');
       opt.value = m.id;
-      opt.textContent = m.available ? m.label : `${m.label} (needs ${m.missing.join(' + ')} key)`;
-      opt.disabled = !m.available;
+      opt.textContent = m.available ? m.label : `${m.label} (needs a ${m.missing.join(' + ')} key)`;
+      opt.disabled = !m.available && !window.electronAPI;
       opt.title = m.note;
       modelSelect.appendChild(opt);
     }
     const preferred = models.lastModel && models.models.find(m => m.id === models.lastModel && m.available);
     const firstAvailable = models.models.find(m => m.available);
-    modelSelect.value = preferred ? preferred.id : (firstAvailable ? firstAvailable.id : '');
+    modelSelect.value = preferred ? preferred.id : (firstAvailable ? firstAvailable.id : (models.models[0] ? models.models[0].id : ''));
     personaSelect.innerHTML = '';
     for (const p of models.personas) {
       const opt = document.createElement('option');
@@ -120,15 +144,88 @@ async function loadCatalog() {
 
     ui.silenceMs = Math.max(600, Number(status.silenceSeconds || 1.8) * 1000);
     ui.softLimitMinutes = Number(status.sessionMinutesSoftLimit || 15);
-    const bits = [];
-    bits.push(`Notes are saved to ${status.workspaceDir}.`);
-    if (!firstAvailable) bits.push('Add a Gemini API key in Settings to begin.');
-    $('start-hint').innerText = bits.join(' ');
-    $('btn-start').disabled = !firstAvailable;
+    $('start-hint').innerText = `Notes are saved to ${status.workspaceDir}.`;
+    await refreshMediaStatus();
+    updateModelReadiness();
   } catch (e) {
     $('start-hint').innerText = 'Could not reach the local server. Try restarting the app.';
     $('btn-start').disabled = true;
   }
+}
+
+// Which key, if any, the chosen model still needs. Offers keys already on this
+// Mac before asking the user to paste one.
+async function updateModelReadiness() {
+  const m = (ui.catalog || []).find(x => x.id === modelSelect.value);
+  const panel = $('key-panel');
+  if (!m || m.available) {
+    panel.hidden = true;
+    $('btn-start').disabled = !m;
+    return;
+  }
+  $('btn-start').disabled = true;
+  const vendor = m.missing.includes('Gemini') ? 'gemini' : m.vendor;
+  panel.dataset.vendor = vendor;
+  const vendorName = { gemini: 'Gemini', anthropic: 'Anthropic', openai: 'OpenAI' }[vendor];
+  $('key-panel-text').innerText = vendor === 'gemini'
+    ? 'Every model needs a Gemini key: it transcribes your speech. Free from Google AI Studio.'
+    : `${m.label} needs an ${vendorName} API key. It receives the transcript of what you say, not the audio.`;
+  $('key-panel-input').placeholder = `Paste your ${vendorName} API key`;
+  $('key-panel-msg').innerText = '';
+  $('key-panel-found').innerHTML = '';
+  panel.hidden = false;
+  if (!window.electronAPI) return;
+  try {
+    const found = await window.electronAPI.detectKeys();
+    if (panel.dataset.vendor !== vendor) return;
+    for (const c of found[vendor] || []) {
+      const li = document.createElement('li');
+      const left = document.createElement('div');
+      left.innerHTML = `Found a ${vendorName} key <code></code><span class="src"></span>`;
+      left.querySelector('code').innerText = c.masked;
+      left.querySelector('.src').innerText = c.source;
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'btn btn-primary'; btn.innerText = 'Use this key';
+      btn.onclick = async () => { try { await window.electronAPI.useDetectedKey(c.id); await loadCatalog(); } catch (e) { $('key-panel-msg').innerText = cleanError(e); } };
+      li.append(left, btn);
+      $('key-panel-found').appendChild(li);
+    }
+    if (vendor === 'anthropic' && found.anthropicProfile && found.anthropicProfile.found) {
+      const li = document.createElement('li');
+      const left = document.createElement('div');
+      left.innerText = `Found an Anthropic CLI sign-in (profile "${found.anthropicProfile.profile}")`;
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'btn btn-primary'; btn.innerText = 'Use my sign-in';
+      btn.onclick = async () => { try { await window.electronAPI.useAnthropicProfile(); await loadCatalog(); } catch (e) { $('key-panel-msg').innerText = cleanError(e); } };
+      li.append(left, btn);
+      $('key-panel-found').appendChild(li);
+    }
+  } catch (e) { /* detection is best-effort */ }
+}
+
+const KEY_URLS = {
+  gemini: 'https://aistudio.google.com/apikey',
+  anthropic: 'https://console.anthropic.com/settings/keys',
+  openai: 'https://platform.openai.com/api-keys'
+};
+
+function cleanError(e) { return String(e && e.message || e).replace(/^Error invoking remote method '[^']+': Error: /, ''); }
+
+async function refreshMediaStatus() {
+  const row = $('camera-row');
+  if (!window.electronAPI) { row.hidden = true; ui.cameraStatus = 'unknown'; return; }
+  try {
+    const st = await window.electronAPI.getStatus();
+    ui.cameraStatus = st.media.camera;
+    ui.micStatus = st.media.microphone;
+  } catch (e) { ui.cameraStatus = 'unknown'; }
+  row.hidden = ui.cameraStatus === 'denied' || ui.cameraStatus === 'restricted';
+  let remembered = null;
+  try { remembered = localStorage.getItem('recordVideo'); } catch (e) { /* storage unavailable */ }
+  $('camera-toggle').checked = remembered === null ? ui.cameraStatus === 'granted' : remembered === 'yes';
+  $('camera-label').innerText = ui.cameraStatus === 'granted'
+    ? 'Also record video, so Gemini can compare what you say with how you look and sound. Never shown on screen.'
+    : 'Also record video, so Gemini can compare what you say with how you look and sound. macOS will ask for camera access when you begin. Never shown on screen.';
 }
 
 // ---------------------------------------------------------------------------
@@ -136,18 +233,25 @@ async function loadCatalog() {
 
 async function setupMedia() {
   const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
-  try {
-    ui.stream = await navigator.mediaDevices.getUserMedia({
-      audio,
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 15, max: 24 }, facingMode: 'user' }
-    });
-    ui.hasVideo = ui.stream.getVideoTracks().length > 0;
-  } catch (e) {
-    // No camera (or camera denied): fall back to audio only. The interview still works.
-    ui.stream = await navigator.mediaDevices.getUserMedia({ audio });
-    ui.hasVideo = false;
-    notify('No camera available. Recording audio only; the session will not get a video analysis.');
+  const wantVideo = $('camera-row').hidden ? false : $('camera-toggle').checked;
+  try { localStorage.setItem('recordVideo', wantVideo ? 'yes' : 'no'); } catch (e) { /* ignore */ }
+  if (wantVideo && window.electronAPI && ui.cameraStatus === 'not-determined') {
+    // Ask macOS now, while the explanation is still on screen, rather than mid-session.
+    try { const st = await window.electronAPI.requestCamera(); ui.cameraStatus = st.camera; } catch (e) { /* fall through */ }
   }
+  ui.hasVideo = false;
+  if (wantVideo) {
+    try {
+      ui.stream = await navigator.mediaDevices.getUserMedia({
+        audio,
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 15, max: 24 }, facingMode: 'user' }
+      });
+      ui.hasVideo = ui.stream.getVideoTracks().length > 0;
+    } catch (e) {
+      notify('The camera is not available, so this session records audio only.');
+    }
+  }
+  if (!ui.stream) ui.stream = await navigator.mediaDevices.getUserMedia({ audio });
   hiddenVideo.srcObject = ui.stream;
   setupVisualizer();
 }
@@ -367,7 +471,7 @@ function handleServerMessage(data) {
       else $('review-status').innerText = data.text;
       break;
     case 'notice':
-      notify(data.text, data.level || 'info');
+      notify(data.text, data.level || 'info', 9000, data.action || null);
       break;
     case 'question':
       transcriptDisplay.innerText = data.transcript ? `"${data.transcript}"` : '';
@@ -517,6 +621,7 @@ function showDone(data) {
     ? `Session note saved and your Master Dossier updated.\n${data.note_path}`
     : `Session note saved.\n${data.note_path}`;
   $('btn-show-note').hidden = !window.electronAPI;
+  $('google-suggest').hidden = !(window.electronAPI && ui.status && ui.status.suggestGoogle);
   showOverlay('done-screen');
   cleanupConnections();
 }
@@ -565,13 +670,24 @@ window.addEventListener('keydown', e => {
 });
 
 $('btn-start').addEventListener('click', () => beginSession());
+modelSelect.addEventListener('change', updateModelReadiness);
+$('key-panel-save').addEventListener('click', async () => {
+  const vendor = $('key-panel').dataset.vendor;
+  const value = $('key-panel-input').value.trim();
+  if (!value || !window.electronAPI) return;
+  const name = { gemini: 'geminiApiKey', anthropic: 'anthropicApiKey', openai: 'openaiApiKey' }[vendor];
+  try { await window.electronAPI.setSecret(name, value); $('key-panel-input').value = ''; await loadCatalog(); }
+  catch (e) { $('key-panel-msg').innerText = cleanError(e); }
+});
+$('key-panel-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('key-panel-save').click(); });
+$('key-panel-link').addEventListener('click', () => { const url = KEY_URLS[$('key-panel').dataset.vendor]; if (window.electronAPI) window.electronAPI.openExternal(url); else window.open(url); });
+$('btn-suggest-google').addEventListener('click', () => openSettingsFor('google'));
+$('btn-suggest-later').addEventListener('click', async () => { $('google-suggest').hidden = true; if (window.electronAPI) await window.electronAPI.dismissGoogleSuggestion(); });
 $('btn-error-restart').addEventListener('click', resetToStart);
-$('btn-error-settings').addEventListener('click', () => { if (window.electronAPI) window.electronAPI.openSettings(); });
+$('btn-error-settings').addEventListener('click', () => { if (window.electronAPI) window.electronAPI.openSettings(null); });
 $('settings-btn').addEventListener('click', () => {
   if (!window.electronAPI) { alert('Settings are available in the desktop app.'); return; }
-  if (['listening', 'thinking', 'starting', 'ending'].includes(ui.state) && !confirm('Leave this session? The recording so far is kept, but the conversation will not be summarized or saved.')) return;
-  cleanupConnections();
-  window.electronAPI.openSettings();
+  openSettingsFor(null);
 });
 
 $('btn-save').addEventListener('click', () => {
