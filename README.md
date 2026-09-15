@@ -21,7 +21,7 @@ A short spoken interview with an AI that asks you *why*. It records your answers
 
 1. Open https://github.com/Honch42/madrone-context/releases/latest and download the `.dmg`.
 2. Open it and drag **Madrone Context** into Applications.
-3. The app is not signed with an Apple Developer ID, so macOS refuses to open it the first time. Right-click the app, choose **Open**, then **Open** again. You only need to do this once.
+3. The app is not signed with an Apple Developer ID, so the first time you open it macOS shows "Apple could not verify Madrone Context is free of malware". Click **Done** (not Move to Trash), then open **System Settings > Privacy & Security**, scroll down to the **Security** section, and click **Open Anyway** next to the message about Madrone Context. Confirm with your password or Touch ID. You only need to do this once. (On macOS 14 and earlier, right-clicking the app and choosing **Open** also works.)
 4. Grant microphone access when asked.
 
 The download works on both Apple Silicon and Intel Macs.
@@ -202,7 +202,7 @@ Leave the version blank to get a test build without publishing a release; the `.
 
 **Including Google sign-in.** Rather than committing your `google_oauth_client.json`, store its contents as a repository secret: **Settings > Secrets and variables > Actions > New repository secret**, name `GOOGLE_OAUTH_CLIENT_JSON`, and paste the whole file as the value. Every build then includes it.
 
-**Signing and notarizing.** Unsigned builds make friends right-click > Open once. To remove that, join the Apple Developer Program, export your Developer ID certificate as a `.p12`, and add these secrets: `CSC_LINK` (the `.p12` encoded as base64), `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`. The workflow signs and notarizes automatically when they exist.
+**Signing and notarizing.** Unsigned builds make friends go through System Settings > Privacy & Security > Open Anyway once. To remove that, join the Apple Developer Program, export your Developer ID certificate as a `.p12`, and add these secrets: `CSC_LINK` (the `.p12` encoded as base64), `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`. The workflow signs and notarizes automatically when they exist.
 
 **Building on your own Mac** still works: `npm run build` produces the same `.dmg` in `dist/`.
 

@@ -104,5 +104,5 @@ jobs:
           generate_release_notes: true
           body: |
             **Install:** open the `.dmg`, drag Madrone Context to Applications.
-            **First launch:** right-click the app and choose **Open** (the app is not signed with an Apple Developer ID, so macOS asks once).
+            **First launch:** macOS will say it could not verify the app (it is not signed with an Apple Developer ID). Click **Done**, then open **System Settings > Privacy & Security**, scroll to **Security**, click **Open Anyway**, and confirm. This happens once.
             Works on Apple Silicon and Intel Macs. Needs macOS 13 or newer.
