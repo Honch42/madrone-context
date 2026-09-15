@@ -1,0 +1,95 @@
+# Builds the Mac app on GitHub's own macOS machines and publishes the .dmg.
+#
+# Two ways to run it:
+#   1. Actions tab > "Build Mac app" > Run workflow. Enter a version such as
+#      v1.0.1 to publish a Release with that tag; leave it blank to just get a
+#      downloadable artifact on the run page.
+#   2. Push a tag that starts with "v" (for example `git tag v1.0.1 && git push --tags`).
+#
+# Optional repository secrets (Settings > Secrets and variables > Actions):
+#   GOOGLE_OAUTH_CLIENT_JSON   contents of your google_oauth_client.json, so the
+#                              built app includes Google sign-in
+#   CSC_LINK, CSC_KEY_PASSWORD Developer ID certificate (.p12, base64) and its
+#                              password, to sign the app
+#   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+#                              to notarize the signed app with Apple
+
+name: Build Mac app
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag, e.g. v1.0.1 (leave blank for an unreleased build)'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    env:
+      VERSION_TAG: ${{ github.event.inputs.version || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Set version from tag
+        if: env.VERSION_TAG != ''
+        run: npm version --no-git-tag-version "${VERSION_TAG#v}"
+
+      - name: Add Google sign-in file (if the secret is set)
+        if: ${{ secrets.GOOGLE_OAUTH_CLIENT_JSON != '' }}
+        env:
+          GOOGLE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_OAUTH_CLIENT_JSON }}
+        run: printf '%s' "$GOOGLE_OAUTH_CLIENT_JSON" > google_oauth_client.json
+
+      - name: Build
+        env:
+          # Sign and notarize only when the secrets exist; otherwise build unsigned.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run build
+
+      - name: List output
+        run: ls -la dist/*.dmg
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Madrone-Context-mac
+          path: dist/*.dmg
+          if-no-files-found: error
+
+      - name: Publish release
+        if: env.VERSION_TAG != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION_TAG }}
+          name: Madrone Context ${{ env.VERSION_TAG }}
+          files: dist/*.dmg
+          generate_release_notes: true
+          body: |
+            **Install:** open the `.dmg`, drag Madrone Context to Applications.
+            **First launch:** right-click the app and choose **Open** (the app is not signed with an Apple Developer ID, so macOS asks once).
+            Works on Apple Silicon and Intel Macs. Needs macOS 13 or newer.
