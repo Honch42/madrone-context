@@ -36,6 +36,9 @@ jobs:
     timeout-minutes: 40
     env:
       VERSION_TAG: ${{ github.event.inputs.version || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
+      # Secrets cannot be tested in a step's `if`; expose their presence here instead.
+      HAS_GOOGLE_CLIENT: ${{ secrets.GOOGLE_OAUTH_CLIENT_JSON != '' }}
+      HAS_SIGNING_CERT: ${{ secrets.CSC_LINK != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,7 +58,7 @@ jobs:
         run: npm version --no-git-tag-version "${VERSION_TAG#v}"
 
       - name: Add Google sign-in file (if the secret is set)
-        if: ${{ secrets.GOOGLE_OAUTH_CLIENT_JSON != '' }}
+        if: env.HAS_GOOGLE_CLIENT == 'true'
         env:
           GOOGLE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_OAUTH_CLIENT_JSON }}
         run: printf '%s' "$GOOGLE_OAUTH_CLIENT_JSON" > google_oauth_client.json
@@ -65,7 +68,7 @@ jobs:
           # Sign and notarize only when the secrets exist; otherwise build unsigned.
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.HAS_SIGNING_CERT }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
