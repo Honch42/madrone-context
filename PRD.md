@@ -1,11 +1,11 @@
 # Product Requirement Document (PRD)
 ## PRD for the Interview-Based Proactive Context Platform (Madrone Context)
 
-* **Document Version:** 1.1 (updated to match the shipped code)
-* **Date:** September 11, 2026 (original draft September 7, 2026)
-* **Target OS:** macOS (Apple Silicon Optimized)
+* **Document Version:** 1.2 (matches release v1.0.0)
+* **Date:** September 15, 2026 (original draft September 7, 2026; v1.1 September 11, 2026)
+* **Target OS:** macOS 13 or newer, Apple Silicon and Intel (universal build)
 * **Author:** Antigravity (Autonomous Systems Architecture) & John Honchariw
-* **Status note:** Sections 1 to 10 describe the product vision. Where the shipped app differs, a *Status* line says so. Section 11 is the authoritative description of what is built as of this version.
+* **Status note:** Sections 1 to 10 describe the product vision. Where the shipped app differs, a *Status* line says so. Section 11 is the authoritative description of what is built as of this version, and 11.9 lists what has and has not been verified on a real Mac.
 
 ---
 
@@ -153,7 +153,7 @@ The user pastes their own keys. Gemini is required for every configuration becau
 | **Speech-to-text** | Gemini 3.6 Flash | Used for Claude and GPT turns and for the final utterance at conclusion. Swappable behind one small class. |
 | **Voice synthesis** | None, by design | The AI reads its questions on screen. Removed from scope. |
 | **Video / delta analysis** | Gemini models | Claude and GPT sessions archive the recording for later analysis and use the transcript only. |
-| **File tools** | Read-only filesystem MCP on the notes folder | Available to Claude and GPT; Gemini's JSON response mode does not combine with tool calls yet. |
+| **File tools** | Read-only filesystem MCP on the notes folder | Available to Claude and GPT; Gemini's JSON response mode does not combine with tool calls yet. Separately, and for every model, the app itself hands the interviewer the note for any person, project or topic the user mentions (see 7.1a). |
 
 ### 4.4 Hardware & Media Recording Pipeline
 * **Capture profile:** 1280×720 at up to 24 fps (15 requested), VP9/VP8 video at about 0.8 Mbps and Opus audio at 64 kbps, in a WebM container. A 15-minute session is roughly 90 MB.
@@ -343,6 +343,9 @@ The user can select between 4 established interviewing methodologies to suit the
 | **Local Server Exposure** | MEDIUM | Another device on the Wi-Fi reaches the app's server | Bound to `127.0.0.1` only. |
 | **Model Writes to Vault** | MEDIUM | A tool-calling model edits or moves the user's notes | The MCP tool list is filtered to read-only tools before the model sees it. |
 | **STT Engine Dependency** | LOW | Gemini transcription unavailable | Transcription is isolated in one small class (`GeminiTranscriber`) so another STT engine can be dropped in. |
+| **Leaked API Key** | MEDIUM | A key is copied from the user's Mac or a backup | Keys are stored encrypted through the macOS Keychain, never as plain text; setup and the README tell users to set a monthly spending cap per key, since a leaked key can only spend, not read. |
+| **Unverified App Friction** | LOW | macOS or Google warnings scare a friend off | The app explains each warning before it appears: a pre-flight screen mocks Google's "unverified app" page, and the release notes and README cover the one-time right-click > Open on first launch. Apple signing removes the latter once a Developer ID is added. |
+| **Sensitive Notes at Rest** | MEDIUM | Personal reflections sync somewhere the user did not intend | Notes are plain files by design; the privacy section says so and advises choosing the notes folder accordingly. Recordings can be kept outside a synced vault. |
 
 ---
 
@@ -359,8 +362,13 @@ The user can select between 4 established interviewing methodologies to suit the
 * Setup wizard, encrypted key storage, per-user Google sign-in, Screenpipe detection.
 * Read-only file tools for Claude and GPT over the notes folder.
 * Four interview personas (Socratic, 5-Whys, GROW, Empathetic).
+* Progressive onboarding: microphone and Gemini key first; camera, other vendors, Google and Screenpipe offered in context.
+* Key import every common way: found on the Mac, clipboard, any `.env` file, 1Password (item picker or `op://` reference), Anthropic CLI sign-in.
+* Obsidian graph integration: entity notes for people, projects and topics; link properties on session notes; a Bases table; recordings embedded; the interviewer recalls entity notes when they are mentioned.
+* Distribution: a GitHub Actions workflow builds a universal `.dmg` and publishes it as a GitHub Release. **v1.0.0 published September 15, 2026.**
 
 ### Phase 2: Cadence, Agenda & Reprocessing (V1.1) — next
+* Link each session to that day's daily note, using the vault's own daily-notes settings; optionally append a line to the daily note.
 * Morning and evening modes with a pre-interview agenda built from calendar, mail and screen activity.
 * Retroactive batch reprocessing of archived recordings with newer models.
 * Resume a paused session after the app is closed.
@@ -375,7 +383,7 @@ The user can select between 4 established interviewing methodologies to suit the
 * Autonomous background triggers and mid-day proactivity based on real-time Screenpipe activity.
 
 ---
-## 11. Implementation Reality (updated September 11, 2026)
+## 11. Implementation Reality (updated September 15, 2026)
 
 This section is the authoritative description of the shipped code. Where it disagrees with an earlier section, this section is right.
 
@@ -394,7 +402,7 @@ Gemini ingests raw audio natively; Anthropic's and OpenAI's chat APIs do not. To
 * **With Claude and OpenAI:** the recording is archived under the session id for future retroactive analysis, and the summary relies on the transcript.
 
 ### 11.4 Read-Only File Tools over the Notes Folder
-A filesystem MCP server, bundled with the app and started with the app's own Node runtime (no internet or `npx` needed), is attached to the notes folder. Claude and GPT receive only its read and search tools; write, edit and move tools are filtered out. If the user mentions a project that is not in their Master Dossier, the model can read the matching note and respond in context. Gemini does not receive tools because its JSON response mode does not yet combine with function calling.
+A filesystem MCP server, bundled with the app and started with the app's own Node runtime (no internet or `npx` needed), is attached to the notes folder. Claude and GPT receive only its read and search tools; write, edit and move tools are filtered out. Gemini does not receive tools because its JSON response mode does not yet combine with function calling. Independently of MCP, and for every model, the app watches each transcript for the names of existing entity notes and hands the matching note to the interviewer on the next turn (11.7).
 
 ### 11.5 Setup Wizard, Settings & Edge Cases
 * **Progressive onboarding:** first-run setup asks only for the microphone and a Gemini key, then starts. Camera, other model vendors, Google accounts and Screenpipe are offered in context: the camera as a checkbox on the start screen (macOS is asked only then), a vendor key the moment a Claude or GPT model is chosen, Google once after the first saved session and again whenever an interview is asked about calendar or email with no account connected. This follows Apple's and Google's guidance to request access when a feature is first used rather than at install.
@@ -411,6 +419,24 @@ A filesystem MCP server, bundled with the app and started with the app's own Nod
 * `Cmd+Enter` transcribes the utterance in progress, closes the recording, shows the summary, and releases the camera. The camera light goes off as soon as the session ends.
 * Save writes the note, backs up and rewrites the Master Dossier, and waits for a pending video analysis first. Discard deletes the recording and writes nothing. After either, the user can start a new session or quit from the same screen.
 * The local server accepts connections only from the same machine.
+
+### 11.7 Obsidian as the Knowledge Graph
+Everything the app writes lives under `<notes folder>/Madrone/` (Section 7.1). After each saved session the model lists the people, projects and topics discussed; the app creates or appends to one note per entity in `People/`, `Projects/` and `Topics/` with a dated line linking back to the session, and the session note carries them as list-of-link properties. The model is shown existing entity names before summarizing so it reuses them, and loose matching collapses spelling variants onto one note. A generated `Madrone Sessions.base` gives a table of sessions with views for flagged incongruence and grouping by project. Session notes embed their recording when it lives inside the vault, and the saved screen offers "Open in Obsidian". Legacy files from the earlier root-level layout are moved into `Madrone/` once, never over existing files.
+
+### 11.8 Distribution
+A GitHub Actions workflow (`.github/workflows/build-mac.yml`) builds the app on GitHub's macOS runners: it installs dependencies, runs the smoke test, builds a universal `.dmg` (Apple Silicon and Intel), and publishes a GitHub Release when run with a version or when a `v*` tag is pushed. Google sign-in is included when the `GOOGLE_OAUTH_CLIENT_JSON` repository secret exists; Apple signing and notarization switch on when the certificate and Apple ID secrets exist. Without them the build is unsigned and users right-click > Open once on first launch. **Release v1.0.0** was built and published this way on September 15, 2026, in under four minutes; the download is https://github.com/Honch42/madrone-context/releases/latest. Building locally with `npm run build` still works.
+
+### 11.9 Verification Status
+What has been verified, and how:
+* **Server, storage, prompts, adapters, discovery, 1Password field logic, Obsidian layout and entity notes:** exercised end to end by `npm test`, a smoke test that runs a full interview against a fake model, and run on every GitHub build.
+* **Bundled MCP server:** started and exercised in the authoring environment; nine read-only tools, writes rejected.
+* **GitHub build and release:** run for real; v1.0.0 published.
+* **Bases file syntax:** checked against Obsidian's documentation.
+
+What has not yet been verified, because the authoring environment has no macOS display, camera or Keychain:
+* The first real launch of the app on a Mac: setup screen, interview HUD, review and settings pages, camera and microphone prompts.
+* Google sign-in end to end (needs the OAuth client file), a live 1Password import (needs the CLI integration), and Apple signing (needs a Developer ID).
+* The generated notes and `.base` file opened in a real vault.
 
 ---
 *End of Product Requirement Document.*
