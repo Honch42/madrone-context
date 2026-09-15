@@ -50,6 +50,21 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   assert(discover.looksLikeKey('gemini', env.GEMINI_API_KEY) && discover.looksLikeKey('anthropic', env.ANTHROPIC_API_KEY) && !discover.looksLikeKey('anthropic', env.OPENAI_API_KEY), 'key shapes are vendor-specific');
   assert(discover.mask(env.ANTHROPIC_API_KEY) === 'sk-ant-…0123', 'masked preview shows only the ends');
 
+  // 1Password: secret-field selection and reference detection (no CLI needed).
+  const op = require('../src/onepassword');
+  const shape = v => discover.looksLikeKey('anthropic', v);
+  const cred = op.pickSecretField({ fields: [{ id: 'username', type: 'STRING', value: 'me' }, { id: 'credential', type: 'CONCEALED', value: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123' }] }, shape);
+  assert(cred && cred.id === 'credential', '1Password API Credential item: credential field chosen');
+  const pw = op.pickSecretField({ fields: [{ id: 'password', purpose: 'PASSWORD', type: 'CONCEALED', value: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz9999' }] }, shape);
+  assert(pw && pw.id === 'password', '1Password Password item: password field chosen');
+  const shaped = op.pickSecretField({ fields: [{ id: 'password', purpose: 'PASSWORD', type: 'CONCEALED', value: 'not-a-key' }, { id: 'x', label: 'API key', type: 'CONCEALED', value: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz5555' }] }, shape);
+  assert(shaped && shaped.id === 'x', '1Password item with several secrets: the one shaped like the vendor key wins');
+  assert(op.isReference('op://Private/Anthropic API key/credential') && !op.isReference('sk-ant-abc'), 'op:// references are recognised');
+  const clip = discover.register('gemini', 'AIzaSyA1234567890abcdefghijklmnop', 'Clipboard');
+  assert(clip && discover.resolve(clip.id).value.startsWith('AIza') && discover.register('gemini', 'hello', 'Clipboard') === null, 'clipboard registration accepts only key-shaped text');
+  const fromFile = discover.candidatesFromEnvText('OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwxyz\nGEMINI_API_KEY=nope', 'test.env');
+  assert(fromFile.openai.length === 1 && fromFile.gemini.length === 0, '.env import keeps only well-formed keys');
+
   const { port, server } = await startServer();
   const base = `ws://127.0.0.1:${port}`;
   const ws = new WebSocket(`${base}/ws/orchestrator`);

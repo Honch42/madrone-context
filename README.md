@@ -51,6 +51,24 @@ Then press **Start**. Everything else is optional and the app offers it when it 
 
 Keys are stored encrypted in your macOS Keychain. Everything can be changed later from the **Settings** button, which also has a "What this app can see" section and a **Forget everything** button that removes every key and connection while leaving your notes alone.
 
+### Every way to bring in a key
+
+Whatever you already do with API keys, there is a one-click path:
+
+| You keep keys… | What to do |
+|---|---|
+| Nowhere yet | Click "Get a key", copy it, then click **Clipboard** |
+| In your shell environment or a tool's config | The app finds them and shows "Use this key" |
+| In a `.env` file somewhere | Click **A .env file** and choose it |
+| In 1Password | Click **1Password**, pick the item, approve the Touch ID prompt. Or paste a secret reference such as `op://Private/Anthropic API key/credential` into the key field |
+| Signed in to the Anthropic CLI | Click "Use my Anthropic sign-in"; Claude models then need no key |
+
+Keys imported from 1Password remember where they came from, so a **Refresh from 1Password** button re-reads the item after you rotate the key. 1Password import needs the 1Password app, its command-line tool (`brew install 1password-cli`) and the "Integrate with 1Password CLI" switch in 1Password > Settings > Developer. The app only sees item titles to build the list and reads one item's secret when you choose it, after 1Password's own prompt.
+
+However a key arrives, it is stored the same way: encrypted with a key held in your macOS Keychain, never as plain text. Once imported, a 1Password key is a copy; the original stays in 1Password.
+
+**Set a spending cap.** A leaked API key can only spend money, never read anything of yours. Google AI Studio, the Anthropic console and the OpenAI dashboard all let you cap monthly spend per key. Do it when you create the key; it turns the worst case into a small bill.
+
 ### Where the app looks for existing keys
 
 Most people who already have API keys keep them in one of these places, and the app checks all of them (it never uses one without you clicking "Use this key"):
@@ -123,6 +141,7 @@ For Claude and GPT, Gemini Flash transcribes each answer and the transcript goes
 - With a Gemini model, the session video is uploaded to Google's Files API for analysis after the session and deleted from Google when the analysis finishes.
 - Your Master Dossier is included in the interviewer's instructions so it can ask informed questions.
 - Nothing else leaves your Mac. The app's internal server listens only on `127.0.0.1`.
+- Your notes and recordings are plain files. They hold personal reflections, which makes them more sensitive than any API key, and they are protected only by your Mac's disk encryption and whatever service syncs the folder. Choose that folder accordingly.
 
 ## Google sign-in (for whoever builds the app)
 

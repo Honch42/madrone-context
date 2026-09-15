@@ -128,4 +128,30 @@ function resolve(id) {
   return cache.get(id) || null;
 }
 
-module.exports = { discover, resolve, parseDotenv, looksLikeKey, mask, anthropicProfile, ENV_VARS };
+// Registers keys found by another route (a chosen .env file, the clipboard) so
+// the page can offer them masked and pick by id, exactly like discovered ones.
+function register(vendor, value, source) {
+  if (!looksLikeKey(vendor, value)) return null;
+  const id = crypto.randomBytes(6).toString('hex');
+  cache.set(id, { vendor, value: value.trim() });
+  return { id, source, masked: mask(value.trim()) };
+}
+
+function candidatesFromEnvText(text, source) {
+  const map = parseDotenv(text);
+  const out = { gemini: [], anthropic: [], openai: [] };
+  for (const vendor of Object.keys(ENV_VARS)) {
+    for (const name of ENV_VARS[vendor]) {
+      if (map[name]) { const c = register(vendor, map[name], `${source} (${name})`); if (c) out[vendor].push(c); }
+    }
+  }
+  return out;
+}
+
+// A pasted value that is not a key itself but names one.
+function vendorForKey(value) {
+  for (const vendor of Object.keys(KEY_SHAPES)) if (looksLikeKey(vendor, value)) return vendor;
+  return null;
+}
+
+module.exports = { discover, resolve, register, candidatesFromEnvText, vendorForKey, parseDotenv, looksLikeKey, mask, anthropicProfile, ENV_VARS };

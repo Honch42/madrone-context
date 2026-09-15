@@ -2,13 +2,14 @@
 // Electron main process: the window, native dialogs and permissions, and the
 // bridge between the settings page and the config module.
 
-const { app, BrowserWindow, systemPreferences, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, systemPreferences, ipcMain, dialog, shell, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 const config = require('./src/config');
 const legacy = require('./src/legacy');
 const discover = require('./src/discover');
+const onepassword = require('./src/onepassword');
 const googleCtx = require('./src/google');
 const screenpipe = require('./src/screenpipe');
 const { startServer } = require('./src/server');
@@ -44,6 +45,8 @@ function statusPayload() {
     platform: process.platform,
     keys: { gemini: !!keys.gemini, anthropic: !!keys.anthropic, openai: !!keys.openai },
     anthropicAuth: settings.anthropicAuth,
+    keySources: { gemini: config.getKeySource('geminiApiKey'), anthropic: config.getKeySource('anthropicApiKey'), openai: config.getKeySource('openaiApiKey') },
+    onePassword: { installed: onepassword.isInstalled() },
     encryption: config.encryptionAvailable(),
     workspaceDir: settings.workspaceDir,
     mediaDir: settings.mediaDir,
@@ -61,11 +64,75 @@ function statusPayload() {
 
 ipcMain.handle('get-status', () => statusPayload());
 
-ipcMain.handle('set-secret', (event, name, value) => {
-  if (!config.SECRET_NAMES.includes(name)) throw new Error('Unknown secret.');
-  config.setSecret(name, value);
+const SECRET_FOR_VENDOR = { gemini: 'geminiApiKey', anthropic: 'anthropicApiKey', openai: 'openaiApiKey' };
+const VENDOR_FOR_SECRET = Object.fromEntries(Object.entries(SECRET_FOR_VENDOR).map(([v, n]) => [n, v]));
+
+const VENDOR_LABEL = { gemini: 'Gemini', anthropic: 'Anthropic', openai: 'OpenAI' };
+
+// Catches the two common paste mistakes (wrong vendor, partial copy) without
+// rejecting a valid key in a format newer than the patterns we know.
+function storeKey(name, value, source) {
+  const vendor = VENDOR_FOR_SECRET[name];
+  if (value && !discover.looksLikeKey(vendor, value)) {
+    const other = discover.vendorForKey(value);
+    if (other && other !== vendor) throw new Error(`That looks like a ${VENDOR_LABEL[other]} key, not a ${VENDOR_LABEL[vendor]} key.`);
+    if (/\s/.test(value) || value.length < 16) throw new Error('That does not look like an API key. Check that you copied the whole key with no spaces.');
+  }
+  config.setSecret(name, value, source);
   if (name === 'anthropicApiKey' && value) config.setSetting('anthropicAuth', 'key');
+}
+
+ipcMain.handle('set-secret', async (event, name, value) => {
+  if (!config.SECRET_NAMES.includes(name)) throw new Error('Unknown secret.');
+  const text = (value || '').trim();
+  if (onepassword.isReference(text)) {
+    // A pasted 1Password secret reference such as op://Private/Anthropic/credential.
+    const resolved = await onepassword.readReference(text);
+    storeKey(name, resolved, { type: 'onepassword', ref: text, title: text });
+    return statusPayload();
+  }
+  storeKey(name, text, text ? { type: 'pasted' } : null);
   return statusPayload();
+});
+
+// 1Password: list likely items (titles only), import one, or refresh a key that came from there.
+ipcMain.handle('onepassword-list', (event, vendor) => onepassword.listCandidates(vendor));
+
+ipcMain.handle('onepassword-import', async (event, vendor, itemId) => {
+  const name = SECRET_FOR_VENDOR[vendor];
+  if (!name) throw new Error('Unknown vendor.');
+  const { value, title } = await onepassword.readItem(itemId, v => discover.looksLikeKey(vendor, v));
+  storeKey(name, value, { type: 'onepassword', itemId, title });
+  return statusPayload();
+});
+
+ipcMain.handle('onepassword-refresh', async (event, vendor) => {
+  const name = SECRET_FOR_VENDOR[vendor];
+  const source = name && config.getKeySource(name);
+  if (!source || source.type !== 'onepassword') throw new Error('This key did not come from 1Password.');
+  const value = source.ref ? await onepassword.readReference(source.ref) : (await onepassword.readItem(source.itemId, v => discover.looksLikeKey(vendor, v))).value;
+  storeKey(name, value, source);
+  return statusPayload();
+});
+
+// Any .env file, wherever the user keeps it.
+ipcMain.handle('import-env-file', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose a .env file that contains your API keys',
+    properties: ['openFile', 'showHiddenFiles'],
+    filters: [{ name: 'Env files', extensions: ['env', 'txt', '*'] }]
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  const file = result.filePaths[0];
+  const found = discover.candidatesFromEnvText(fs.readFileSync(file, 'utf-8'), path.basename(file));
+  return { file, ...found };
+});
+
+// Reads the clipboard only when the user clicks, and only offers it if it looks like a key.
+ipcMain.handle('clipboard-key', (event, vendor) => {
+  const text = (clipboard.readText() || '').trim();
+  if (!text || text.length > 400) return null;
+  return discover.register(vendor, text, 'Clipboard');
 });
 
 // Keys already on this Mac. Values stay in the main process; the page only
@@ -75,9 +142,7 @@ ipcMain.handle('detect-keys', () => discover.discover());
 ipcMain.handle('use-detected-key', (event, id) => {
   const hit = discover.resolve(id);
   if (!hit) throw new Error('That key is no longer available. Try again.');
-  const name = { gemini: 'geminiApiKey', anthropic: 'anthropicApiKey', openai: 'openaiApiKey' }[hit.vendor];
-  config.setSecret(name, hit.value);
-  if (hit.vendor === 'anthropic') config.setSetting('anthropicAuth', 'key');
+  storeKey(SECRET_FOR_VENDOR[hit.vendor], hit.value, { type: 'found', title: 'found on this Mac' });
   return statusPayload();
 });
 

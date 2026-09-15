@@ -175,21 +175,11 @@ async function updateModelReadiness() {
   $('key-panel-found').innerHTML = '';
   panel.hidden = false;
   if (!window.electronAPI) return;
+  $('key-panel-op').hidden = !(ui.status && ui.status.onePasswordInstalled);
   try {
     const found = await window.electronAPI.detectKeys();
     if (panel.dataset.vendor !== vendor) return;
-    for (const c of found[vendor] || []) {
-      const li = document.createElement('li');
-      const left = document.createElement('div');
-      left.innerHTML = `Found a ${vendorName} key <code></code><span class="src"></span>`;
-      left.querySelector('code').innerText = c.masked;
-      left.querySelector('.src').innerText = c.source;
-      const btn = document.createElement('button');
-      btn.type = 'button'; btn.className = 'btn btn-primary'; btn.innerText = 'Use this key';
-      btn.onclick = async () => { try { await window.electronAPI.useDetectedKey(c.id); await loadCatalog(); } catch (e) { $('key-panel-msg').innerText = cleanError(e); } };
-      li.append(left, btn);
-      $('key-panel-found').appendChild(li);
-    }
+    for (const c of found[vendor] || []) addKeyCandidate(vendor, c);
     if (vendor === 'anthropic' && found.anthropicProfile && found.anthropicProfile.found) {
       const li = document.createElement('li');
       const left = document.createElement('div');
@@ -201,6 +191,48 @@ async function updateModelReadiness() {
       $('key-panel-found').appendChild(li);
     }
   } catch (e) { /* detection is best-effort */ }
+}
+
+function addKeyCandidate(vendor, c) {
+  const vendorName = { gemini: 'Gemini', anthropic: 'Anthropic', openai: 'OpenAI' }[vendor];
+  const li = document.createElement('li');
+  const left = document.createElement('div');
+  left.innerHTML = `Found a ${vendorName} key <code></code><span class="src"></span>`;
+  left.querySelector('code').innerText = c.masked;
+  left.querySelector('.src').innerText = c.source;
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'btn btn-primary'; btn.innerText = 'Use this key';
+  btn.onclick = async () => { try { await window.electronAPI.useDetectedKey(c.id); await loadCatalog(); } catch (e) { $('key-panel-msg').innerText = cleanError(e); } };
+  li.append(left, btn);
+  $('key-panel-found').prepend(li);
+}
+
+async function keyPanelFromOnePassword() {
+  const vendor = $('key-panel').dataset.vendor;
+  const vendorName = { gemini: 'Gemini', anthropic: 'Anthropic', openai: 'OpenAI' }[vendor];
+  const msg = $('key-panel-msg');
+  msg.innerText = 'Asking 1Password… approve the prompt if it appears.';
+  try {
+    const items = await window.electronAPI.onePasswordList(vendor);
+    $('key-panel-found').innerHTML = '';
+    msg.innerText = items.length ? 'Choose the item that holds the key:' : `No likely ${vendorName} items found. Name the item after the vendor, or paste an op:// reference above.`;
+    for (const it of items) {
+      const li = document.createElement('li');
+      const left = document.createElement('div');
+      left.innerHTML = `<span></span><span class="src"></span>`;
+      left.querySelector('span').innerText = it.title;
+      left.querySelector('.src').innerText = `1Password · ${it.vault}${it.category ? ' · ' + it.category : ''}`;
+      const use = document.createElement('button');
+      use.type = 'button'; use.className = 'btn btn-primary'; use.innerText = 'Use this item';
+      use.onclick = async () => {
+        use.disabled = true; msg.innerText = 'Reading from 1Password…';
+        try { await window.electronAPI.onePasswordImport(vendor, it.id); await loadCatalog(); }
+        catch (e) { use.disabled = false; msg.innerText = cleanError(e); }
+      };
+      li.append(left, use);
+      $('key-panel-found').appendChild(li);
+    }
+  } catch (e) { msg.innerText = cleanError(e); }
 }
 
 const KEY_URLS = {
@@ -218,6 +250,7 @@ async function refreshMediaStatus() {
     const st = await window.electronAPI.getStatus();
     ui.cameraStatus = st.media.camera;
     ui.micStatus = st.media.microphone;
+    if (ui.status) ui.status.onePasswordInstalled = !!(st.onePassword && st.onePassword.installed);
   } catch (e) { ui.cameraStatus = 'unknown'; }
   row.hidden = ui.cameraStatus === 'denied' || ui.cameraStatus === 'restricted';
   let remembered = null;
@@ -680,6 +713,22 @@ $('key-panel-save').addEventListener('click', async () => {
   catch (e) { $('key-panel-msg').innerText = cleanError(e); }
 });
 $('key-panel-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('key-panel-save').click(); });
+$('key-panel-clip').addEventListener('click', async () => {
+  const vendor = $('key-panel').dataset.vendor;
+  if (!window.electronAPI) return;
+  const c = await window.electronAPI.clipboardKey(vendor);
+  if (c) { addKeyCandidate(vendor, c); $('key-panel-msg').innerText = ''; }
+  else $('key-panel-msg').innerText = 'The clipboard does not contain a key of that kind. Copy the key first, then click again.';
+});
+$('key-panel-env').addEventListener('click', async () => {
+  const vendor = $('key-panel').dataset.vendor;
+  if (!window.electronAPI) return;
+  const r = await window.electronAPI.importEnvFile();
+  if (!r) return;
+  if (r[vendor].length) { for (const c of r[vendor]) addKeyCandidate(vendor, c); $('key-panel-msg').innerText = ''; }
+  else $('key-panel-msg').innerText = `No matching key was found in ${r.file.split('/').pop()}.`;
+});
+$('key-panel-op').addEventListener('click', keyPanelFromOnePassword);
 $('key-panel-link').addEventListener('click', () => { const url = KEY_URLS[$('key-panel').dataset.vendor]; if (window.electronAPI) window.electronAPI.openExternal(url); else window.open(url); });
 $('btn-suggest-google').addEventListener('click', () => openSettingsFor('google'));
 $('btn-suggest-later').addEventListener('click', async () => { $('google-suggest').hidden = true; if (window.electronAPI) await window.electronAPI.dismissGoogleSuggestion(); });
