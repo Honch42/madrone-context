@@ -38,7 +38,6 @@ jobs:
       VERSION_TAG: ${{ github.event.inputs.version || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
       # Secrets cannot be tested in a step's `if`; expose their presence here instead.
       HAS_GOOGLE_CLIENT: ${{ secrets.GOOGLE_OAUTH_CLIENT_JSON != '' }}
-      HAS_SIGNING_CERT: ${{ secrets.CSC_LINK != '' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -65,14 +64,25 @@ jobs:
 
       - name: Build
         env:
-          # Sign and notarize only when the secrets exist; otherwise build unsigned.
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.HAS_SIGNING_CERT }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run build
+          # Passed under other names so an absent secret never reaches
+          # electron-builder as an empty (but defined) variable.
+          SIGNING_CERT: ${{ secrets.CSC_LINK }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          NOTARIZE_APPLE_ID: ${{ secrets.APPLE_ID }}
+          NOTARIZE_APP_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          NOTARIZE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$SIGNING_CERT" ]; then
+            export CSC_LINK="$SIGNING_CERT" CSC_KEY_PASSWORD="$SIGNING_CERT_PASSWORD"
+            echo "Signing with the Developer ID certificate from secrets."
+          else
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            echo "No signing certificate in secrets; building unsigned."
+          fi
+          if [ -n "$NOTARIZE_APPLE_ID" ]; then
+            export APPLE_ID="$NOTARIZE_APPLE_ID" APPLE_APP_SPECIFIC_PASSWORD="$NOTARIZE_APP_PASSWORD" APPLE_TEAM_ID="$NOTARIZE_TEAM_ID"
+          fi
+          npm run build -- --publish never
 
       - name: List output
         run: ls -la dist/*.dmg
