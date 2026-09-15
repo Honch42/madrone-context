@@ -11,6 +11,7 @@ const legacy = require('./src/legacy');
 const discover = require('./src/discover');
 const onepassword = require('./src/onepassword');
 const storage = require('./src/storage');
+const inbox = require('./src/inbox');
 const googleCtx = require('./src/google');
 const screenpipe = require('./src/screenpipe');
 const { startServer } = require('./src/server');
@@ -53,6 +54,16 @@ function statusPayload() {
     mediaDir: settings.mediaDir,
     mediaDirIsDefault: settings.mediaDir === storage.defaultMediaDir(settings.workspaceDir),
     vault: storage.findVaultRoot(settings.workspaceDir),
+    contexts: settings.contexts.map(c => ({
+      id: c.id, name: c.name, notesDir: c.notesDir,
+      mediaDir: c.mediaDir || storage.defaultMediaDir(c.notesDir), mediaDirIsDefault: !c.mediaDir,
+      vault: storage.findVaultRoot(c.notesDir), exists: fs.existsSync(c.notesDir)
+    })),
+    activeContextId: settings.activeContextId,
+    inboxes: settings.inboxes.map(i => ({ ...i, exists: fs.existsSync(i.dir) })),
+    inboxMoveProcessed: settings.inboxMoveProcessed,
+    inboxNew: (() => { try { return inbox.scan(settings.inboxes, config.getInboxProcessed()).length; } catch (e) { return 0; } })(),
+    inboxSuggestion: settings.inboxes.length ? null : suggestInboxFolder(settings),
     screenpipe: { configured: settings.screenpipeDbPath, found: screenpipe.findDatabase(settings.screenpipeDbPath) },
     google: { configured: !!googleClient, source: googleClient ? googleClient.source : null, accounts: config.listGoogleAccounts() },
     media: mediaStatus(),
@@ -159,49 +170,73 @@ ipcMain.handle('dismiss-google-suggestion', () => { config.setSetting('googleSug
 ipcMain.handle('forget-everything', () => { config.forgetEverything(); showSettings('wizard'); });
 
 ipcMain.handle('set-setting', (event, name, value) => {
-  const allowed = ['silenceSeconds', 'sessionMinutesSoftLimit', 'anthropicAuth'];
+  const allowed = ['silenceSeconds', 'sessionMinutesSoftLimit', 'anthropicAuth', 'inboxMoveProcessed'];
   if (!allowed.includes(name)) throw new Error('Unknown setting.');
   config.setSetting(name, value);
   return statusPayload();
 });
 
-ipcMain.handle('select-workspace', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Choose where session notes are saved',
-    properties: ['openDirectory', 'createDirectory'],
-    defaultPath: config.getSettings().workspaceDir
-  });
-  if (!result.canceled && result.filePaths.length) {
-    const previous = config.getSettings();
-    config.setSetting('workspaceDir', result.filePaths[0]);
-    // If the recordings folder was the default under the old workspace, follow the workspace.
-    if (previous.mediaDir === storage.defaultMediaDir(previous.workspaceDir)) config.setSetting('mediaDir', null);
-    fs.mkdirSync(result.filePaths[0], { recursive: true });
+// Looks for a folder named like an inbox inside each context and its vault.
+function suggestInboxFolder(settings) {
+  const names = ['Inbox', 'inbox', '00 Inbox', '0 Inbox', '_Inbox', 'Capture', 'Raw', 'Raw Inbox'];
+  const roots = new Set();
+  for (const c of settings.contexts) {
+    roots.add(c.notesDir);
+    const vault = storage.findVaultRoot(c.notesDir);
+    if (vault) roots.add(vault);
   }
+  for (const root of roots) {
+    for (const n of names) {
+      const candidate = path.join(root, n);
+      try { if (fs.statSync(candidate).isDirectory()) return candidate; } catch (e) { /* next */ }
+    }
+  }
+  return null;
+}
+
+async function pickFolder(title, defaultPath) {
+  const result = await dialog.showOpenDialog(mainWindow, { title, properties: ['openDirectory', 'createDirectory'], defaultPath });
+  return result.canceled || !result.filePaths.length ? null : result.filePaths[0];
+}
+
+ipcMain.handle('add-context', async () => {
+  const dir = await pickFolder('Choose the notes folder for the new context (a vault, or a folder inside one)', config.getSettings().workspaceDir);
+  if (dir) { fs.mkdirSync(dir, { recursive: true }); config.addContext({ notesDir: dir }); }
   return statusPayload();
 });
-
-ipcMain.handle('select-media-dir', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Choose where recordings are saved',
-    properties: ['openDirectory', 'createDirectory'],
-    defaultPath: config.getSettings().mediaDir
-  });
-  if (!result.canceled && result.filePaths.length) config.setSetting('mediaDir', result.filePaths[0]);
+ipcMain.handle('rename-context', (event, id, name) => { config.updateContext(id, { name }); return statusPayload(); });
+ipcMain.handle('remove-context', (event, id) => { config.removeContext(id); return statusPayload(); });
+ipcMain.handle('set-active-context', (event, id) => { config.setActiveContext(id); return statusPayload(); });
+ipcMain.handle('change-context-folder', async (event, id) => {
+  const c = config.getContext(id);
+  const dir = await pickFolder(`Choose the notes folder for "${c.name}"`, c.notesDir);
+  if (dir) { fs.mkdirSync(dir, { recursive: true }); config.updateContext(id, { notesDir: dir, mediaDir: null }); }
   return statusPayload();
 });
+ipcMain.handle('set-context-media-dir', async (event, id) => {
+  const c = config.getContext(id);
+  const dir = await pickFolder(`Choose where recordings for "${c.name}" are saved`, c.mediaDir || storage.defaultMediaDir(c.notesDir));
+  if (dir) config.updateContext(id, { mediaDir: dir });
+  return statusPayload();
+});
+ipcMain.handle('reset-context-media-dir', (event, id) => { config.updateContext(id, { mediaDir: null }); return statusPayload(); });
+ipcMain.handle('show-context', (event, id) => {
+  const c = config.getContext(id);
+  fs.mkdirSync(c.notesDir, { recursive: true });
+  shell.openPath(c.notesDir);
+});
 
-ipcMain.handle('reset-media-dir', () => { config.setSetting('mediaDir', null); return statusPayload(); });
+ipcMain.handle('add-inbox', async (event, presetDir) => {
+  const dir = presetDir && fs.existsSync(presetDir) ? presetDir : await pickFolder('Choose the folder where your phone captures land', config.getSettings().workspaceDir);
+  if (dir) config.addInbox({ dir });
+  return statusPayload();
+});
+ipcMain.handle('remove-inbox', (event, id) => { config.removeInbox(id); return statusPayload(); });
 
 ipcMain.handle('show-workspace', () => {
   const dir = config.getSettings().workspaceDir;
   fs.mkdirSync(dir, { recursive: true });
   shell.openPath(dir);
-});
-
-ipcMain.handle('open-in-obsidian', (event, target) => {
-  if (typeof target === 'string' && fs.existsSync(target) && storage.findVaultRoot(path.dirname(target))) return shell.openExternal(storage.obsidianUrl(target));
-  return false;
 });
 
 ipcMain.handle('show-path', (event, target) => {

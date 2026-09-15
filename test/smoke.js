@@ -10,6 +10,7 @@ const WebSocket = require('ws');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'madrone-smoke-'));
 process.env.MADRONE_CONFIG_DIR = path.join(tmp, 'config');
+process.env.MADRONE_ICLOUD_WAIT_MS = '1500';
 
 const config = require('../src/config');
 config.setSetting('workspaceDir', path.join(tmp, 'vault'));
@@ -37,7 +38,11 @@ class FakeProvider {
     if (this.turn === 1) return { raw: '{"transcript":"I want to ship this app to my friends.","question":"Why does that matter to you?"}', parsed: { transcript: 'I want to ship this app to my friends.', question: 'Why does that matter to you?' }, transcript: 'I want to ship this app to my friends.' };
     return { raw: 'Not JSON at all', parsed: null, transcript: 'Second answer' };
   }
-  async transcribe(buffer, mime) { this.calls.push(['transcribe', buffer.length, mime]); return 'Final words before concluding.'; }
+  async transcribe(buffer, mime) {
+    this.calls.push(['transcribe', buffer.length, mime]);
+    if (mime === 'audio/mp4') return 'Remind me to call the vet about Rex on Friday';
+    return 'Final words before concluding.';
+  }
   async analyzeVideo(filePath, prompt) { this.calls.push(['video', fs.statSync(filePath).size]); return JSON.stringify({ insights: '- Leaned in when talking about friends', synergy_diff: 'Words and posture agreed.\n\nDetected incongruence: none', incongruence: false }); }
   async oneShot(prompt) { this.calls.push(['oneShot', prompt.length]); return '# Master Dossier\n\n## Current goals\n- Ship the app to friends\n\n## Recent sessions\n- one'; }
 }
@@ -87,6 +92,7 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   const waiters = [];
   ws.on('message', m => {
     const data = JSON.parse(m.toString());
+    if (data.type === 'error' || (data.type === 'notice' && data.level === 'error')) console.log(`   [server ${data.type}] ${data.text}`);
     const w = waiters.find(x => x.type === data.type);
     if (w) { waiters.splice(waiters.indexOf(w), 1); w.resolve(data); } else inbox.push(data);
   });
@@ -191,6 +197,66 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   assert(!fs.existsSync(path.join(tmp, 'vault', 'Madrone', 'Sessions', `${s2.session_id}_session.md`)), 'discard wrote no note');
   const history = fs.readdirSync(path.join(tmp, 'vault', 'Madrone', 'dossier_history'));
   assert(history.length === 1, 'the migrated legacy dossier was backed up before the first rewrite');
+
+  // ---- Contexts and the inbox review ----
+  config.updateContext(config.listContexts()[0].id, { name: 'Personal' });
+  const work = config.addContext({ name: 'Madrone Collective', notesDir: path.join(tmp, 'vault', 'Madrone Collective') });
+  const inboxDir = path.join(tmp, 'vault', 'Inbox');
+  fs.mkdirSync(inboxDir, { recursive: true });
+  fs.writeFileSync(path.join(inboxDir, 'Recording 1.m4a'), Buffer.alloc(4000, 7));
+  fs.writeFileSync(path.join(inboxDir, 'Quick note.md'), '---\ncreated: 2026-09-15\n---\nIdea: pitch the beta group on a shared vault template');
+  fs.writeFileSync(path.join(inboxDir, '.Later.m4a.icloud'), 'placeholder');
+  config.addInbox({ dir: inboxDir });
+  const inboxMod = require('../src/inbox');
+  const scanned = inboxMod.scan(config.listInboxes(), config.getInboxProcessed());
+  assert(scanned.length === 3 && scanned.filter(i => i.placeholder).length === 1 && scanned.find(i => i.kind === 'text'), 'inbox scan finds audio, text and an iCloud placeholder');
+  const st = await (await fetch(`http://127.0.0.1:${port}/api/status`)).json();
+  assert(st.contexts.length === 2 && st.inboxNew === 3 && st.inboxConfigured, '/api/status reports contexts and new inbox items');
+
+  const audioId = scanned.find(i => i.kind === 'audio' && !i.placeholder).id;
+  const noteId = scanned.find(i => i.kind === 'text').id;
+  const personalId = st.contexts.find(c => c.name === 'Personal').id;
+  ws.send(JSON.stringify({ type: 'init', model: 'gemini-3.6-flash', persona: 'socratic', mode: 'inbox', context_id: personalId }));
+  const s3 = await next('session');
+  assert(s3.mode === 'inbox' && s3.context === 'Personal' && s3.inbox_total === 3, 'inbox session starts in the chosen context');
+  const ready = await next('inbox_ready');
+  assert(ready.total === 2, 'placeholder that never downloads is skipped; audio and note are ready');
+  fake.respondToAudio = async (buffer, mime, note) => {
+    fake.calls.push(['audio', buffer.length, mime, note]);
+    return { raw: '', transcript: 'Yes, a to-do for personal, due Friday the 18th. And the note is a thought for the collective.', parsed: {
+      transcript: 'Yes, a to-do for personal, due Friday the 18th. And the note is a thought for the collective.',
+      triage: [
+        { item: audioId, kind: 'todo', context: 'personal', title: 'Call the vet about Rex', text: 'Call the vet about Rex.', due: '2026-09-18', people: [], projects: [], topics: ['Pets'] },
+        { item: noteId, kind: 'thought', context: 'Madrone Collective', title: 'Shared vault template for the beta group', text: 'Pitch the beta group on a shared vault template.', due: null, people: ['Jane Doe'], projects: ['Madrone Context'], topics: [] }
+      ],
+      question: "That's everything in your inbox.", done: true } };
+  };
+
+  assert(fake.calls.some(c => c[0] === 'transcribe' && c[2] === 'audio/mp4'), 'inbox voice memo transcribed as audio/mp4');
+  await next('question');
+  ws.send(JSON.stringify({ type: 'audio_meta', mime: 'audio/webm' }));
+  ws.send(Buffer.alloc(5000, 9));
+  const t1 = await next('triage');
+  const t2 = await next('triage');
+  assert([t1, t2].some(t => t.kind === 'todo' && t.context === 'Personal') && [t2, t1].some(t => t.kind === 'thought' && t.context === 'Madrone Collective'), 'triage decisions routed to the named contexts');
+  await next('question');
+  await next('inbox_done');
+  const actions = fs.readFileSync(path.join(tmp, 'vault', 'Madrone', 'Action Items.md'), 'utf-8');
+  assert(actions.includes('- [ ] Call the vet about Rex 📅 2026-09-18'), 'to-do written in Obsidian Tasks format with its due date');
+  const thoughtsDir = path.join(tmp, 'vault', 'Madrone Collective', 'Madrone', 'Thoughts');
+  const thoughtFile = fs.readdirSync(thoughtsDir)[0];
+  const thought = fs.readFileSync(path.join(thoughtsDir, thoughtFile), 'utf-8');
+  assert(thought.includes('Shared vault template') && thought.includes('[[Jane Doe]]') && fs.existsSync(path.join(tmp, 'vault', 'Madrone Collective', 'Madrone', 'People', 'Jane Doe.md')), 'thought written in the other context with its entity notes');
+  assert(fs.existsSync(path.join(tmp, 'vault', 'Madrone', 'Topics', 'Pets.md')), 'topic note created in the to-do context');
+  assert(!fs.existsSync(path.join(inboxDir, 'Recording 1.m4a')) && fs.readdirSync(path.join(inboxDir, 'Processed')).length === 1, 'reviewed items moved into Inbox/Processed');
+  assert(inboxMod.scan(config.listInboxes(), config.getInboxProcessed()).filter(i => !i.placeholder).length === 0, 'no new items remain after the review');
+
+  ws.send(JSON.stringify({ type: 'end_session' }));
+  await next('review');
+  ws.send(JSON.stringify({ type: 'save_session' }));
+  const saved3 = await next('saved');
+  const note3 = fs.readFileSync(saved3.note_path, 'utf-8');
+  assert(saved3.decisions === 2 && note3.includes('type: inbox-review') && note3.includes('## Inbox decisions') && note3.includes('todo → Personal'), 'review session note records the decisions');
 
   ws.close();
   server.close();

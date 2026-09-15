@@ -15,6 +15,9 @@
     </div>
 
     <div class="top-bar">
+        <label>Context
+            <select id="context-select"></select>
+        </label>
         <label>Model
             <select id="model-select"></select>
         </label>
@@ -34,6 +37,7 @@
                 <span class="dot"></span>
                 <span id="status-text">IDLE</span>
                 <span id="timer" class="timer" hidden>00:00</span>
+                <span id="triage-progress" class="timer" hidden></span>
             </div>
             <div class="controls-hint">
                 <span class="key">Space</span> Finish speaking
@@ -73,7 +77,11 @@
             <span id="camera-label">Also record video, so Gemini can compare what you say with how you look and sound. Never shown on screen.</span>
         </label>
 
-        <button id="btn-start" class="btn btn-primary btn-large" type="button">Begin session</button>
+        <div class="button-row">
+            <button id="btn-start" class="btn btn-primary btn-large" type="button">Begin interview</button>
+            <button id="btn-inbox" class="btn btn-quiet btn-large" type="button">Review inbox</button>
+        </div>
+        <p id="inbox-hint" class="muted small"></p>
     </section>
 
     <!-- Error screen -->
@@ -132,6 +140,6 @@
 
     <video id="hidden-video" autoplay muted playsinline hidden></video>
 
-    <script src="app.js?v=33"></script>
+    <script src="app.js?v=34"></script>
 </body>
 </html>

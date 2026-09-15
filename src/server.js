@@ -18,6 +18,7 @@ const providers = require('./providers');
 const mcp = require('./mcp');
 const screenpipe = require('./screenpipe');
 const googleCtx = require('./google');
+const inbox = require('./inbox');
 
 const log = (...args) => console.log('[madrone]', ...args);
 const sessions = new Map();
@@ -30,11 +31,16 @@ function sessionExistsOnDisk(settings, id, now) {
 }
 
 class Session {
-  constructor({ model, persona, deepDive, context }) {
+  constructor({ model, persona, deepDive, context, contextId, mode }) {
     const now = new Date();
     // Two sessions started in the same minute would share an id; add a suffix
     // until neither the live session list nor the disk knows the id.
-    const settings = config.getSettings();
+    const settings = config.contextSettings(contextId);
+    this.ctxSettings = settings;
+    this.context = settings.context;
+    this.mode = mode === 'inbox' ? 'inbox' : 'interview';
+    this.inboxItems = [];
+    this.decisions = [];
     const base = storage.newSessionId(now);
     this.id = base;
     for (let n = 2; sessions.has(this.id) || sessionExistsOnDisk(settings, this.id, now); n++) this.id = `${base}-${n}`;
@@ -98,6 +104,7 @@ class Session {
     const lines = [`Session ${this.id}${this.deepDive ? ' (deep dive)' : ''}`, '', '## Summary', this.summary || '(none)', '', '## Insights', this.insights || '(none)'];
     const links = ['people', 'projects', 'topics'].filter(k => this.entities[k].length).map(k => `${k}: ${this.entities[k].map(n => `[[${n}]]`).join(', ')}`);
     if (links.length) lines.push('', '## Linked notes', ...links);
+    if (this.decisions.length) lines.push('', '## Inbox decisions', inbox.triageSummaryMarkdown(this.decisions));
     if (this.videoInsights) lines.push('', '## Video insights', this.videoInsights);
     if (this.videoAnalysis === 'done') lines.push('', '## Behavioral alignment', this.synergy || '(none)');
     return lines.join('\n');
@@ -120,11 +127,23 @@ function createApp() {
     });
   });
 
+  app.get('/api/inbox', (req, res) => {
+    const settings = config.getSettings();
+    const items = inbox.scan(settings.inboxes, config.getInboxProcessed());
+    res.json({ configured: settings.inboxes.length > 0, items: items.map(it => ({ id: it.id, name: it.name, kind: it.kind, capturedAt: it.capturedAt, inbox: it.inboxName, placeholder: it.placeholder })) });
+  });
+
   app.get('/api/status', (req, res) => {
     const settings = config.getSettings();
+    let inboxNew = 0;
+    try { inboxNew = inbox.scan(settings.inboxes, config.getInboxProcessed()).length; } catch (e) { inboxNew = 0; }
     res.json({
       workspaceDir: settings.workspaceDir,
       mediaDir: settings.mediaDir,
+      contexts: settings.contexts.map(c => ({ id: c.id, name: c.name, notesDir: c.notesDir })),
+      activeContextId: settings.activeContextId,
+      inboxConfigured: settings.inboxes.length > 0,
+      inboxNew,
       silenceSeconds: settings.silenceSeconds,
       sessionMinutesSoftLimit: settings.sessionMinutesSoftLimit,
       googleAccounts: config.listGoogleAccounts().length,
@@ -183,17 +202,26 @@ function attachOrchestrator(ws) {
     const info = providers.modelInfo(modelId);
     if (!info) throw new Error(`Unknown model "${modelId}".`);
 
-    try { storage.migrateLayout(settings); } catch (e) { log('layout migration skipped:', e.message); }
-    session = new Session({ model: modelId, persona, deepDive: data.deep_dive, context: data.context });
+    const contextId = data.context_id || settings.activeContextId;
+    config.setActiveContext(contextId);
+    const mode = data.mode === 'inbox' ? 'inbox' : 'interview';
+    session = new Session({ model: modelId, persona, deepDive: data.deep_dive, context: data.context, contextId, mode });
+    try { storage.migrateLayout(session.ctxSettings); } catch (e) { log('layout migration skipped:', e.message); }
     storage.ensureDirs(session.paths);
     session.known = storage.listEntities(session.paths);
     sessions.set(session.id, session);
-    send({ type: 'session', session_id: session.id, model: modelId, persona, supports_video: info.video });
+
+    let items = [];
+    if (mode === 'inbox') {
+      items = inbox.scan(settings.inboxes, config.getInboxProcessed());
+      if (items.length === 0) throw new Error(settings.inboxes.length ? 'Your inbox has no new items to review.' : 'No inbox folder is set. Add one in Settings under Inbox folders.');
+    }
+    send({ type: 'session', session_id: session.id, model: modelId, persona, supports_video: info.video, mode, context: session.context.name, inbox_total: items.length });
 
     let tools = null;
     if (info.vendor !== 'gemini') {
       status('Connecting to your notes folder…');
-      const ok = await mcp.ensure(settings.workspaceDir, log);
+      const ok = await mcp.ensure(session.ctxSettings.workspaceDir, log);
       if (ok) tools = { list: () => mcp.listTools(), call: mcp.callTool };
       else notice('File tools are unavailable for this session. The interview will continue without them.');
     }
@@ -204,8 +232,43 @@ function attachOrchestrator(ws) {
       systemPrompt: prompts.systemPrompt({ persona, dossier, hasVault: !!tools, known: session.known })
     });
 
-    status('Thinking of a first question…');
-    const opening = await session.provider.respond(prompts.openingPrompt({ deepDive: session.deepDive, context: session.deepDiveContext, hasDossier: !!dossier }));
+    if (mode === 'inbox') {
+      const placeholders = items.filter(it => it.placeholder);
+      if (placeholders.length) {
+        status(`Downloading ${placeholders.length} item${placeholders.length === 1 ? '' : 's'} from iCloud…`);
+        for (const it of placeholders) {
+          if (!(await inbox.ensureDownloaded(it, { timeoutMs: Number(process.env.MADRONE_ICLOUD_WAIT_MS || 30000) }))) notice(`"${it.name}" has not finished downloading from iCloud; it will be skipped this time.`);
+        }
+        items = items.filter(it => !it.placeholder);
+      }
+      const audioItems = items.filter(it => it.kind === 'audio');
+      let n = 0;
+      for (const it of items) {
+        try {
+          if (it.kind === 'audio') {
+            n++;
+            status(`Transcribing voice memo ${n} of ${audioItems.length}…`);
+            const { buffer, mime } = await inbox.readAudio(it);
+            it.text = await session.provider.transcribe(buffer, mime);
+          } else {
+            it.text = inbox.readText(it);
+          }
+        } catch (e) {
+          it.text = '';
+          notice(`Could not read "${it.name}": ${e.message}`, 'error');
+        }
+      }
+      items = items.filter(it => it.text && it.text.trim());
+      if (items.length === 0) throw new Error('None of the inbox items could be read or transcribed.');
+      session.inboxItems = items.map(it => ({ ...it, status: 'pending' }));
+      session.provider.systemPrompt = prompts.inboxSystemPrompt({ contexts: settings.contexts, items: session.inboxItems, known: session.known });
+      send({ type: 'inbox_ready', total: session.inboxItems.length, items: session.inboxItems.map(it => ({ id: it.id, name: it.name, kind: it.kind })) });
+    }
+
+    status(mode === 'inbox' ? 'Reading the first item…' : 'Thinking of a first question…');
+    const opening = await session.provider.respond(mode === 'inbox'
+      ? prompts.inboxOpeningPrompt()
+      : prompts.openingPrompt({ deepDive: session.deepDive, context: session.deepDiveContext, hasDossier: !!dossier }));
     const parsed = providers.extractJson(opening);
     const question = (parsed && parsed.question) || opening || "What's on your mind today?";
     session.lastQuestion = question;
@@ -262,9 +325,61 @@ function attachOrchestrator(ws) {
     } else {
       question = raw || 'Could you say a little more about that?';
     }
+    if (parsed && Array.isArray(parsed.triage) && session.mode === 'inbox') {
+      await applyTriage(parsed.triage);
+    }
     session.lastQuestion = question;
     session.addTranscript('ai', question);
     send({ type: 'question', text: question, transcript: transcript || '' });
+    if (parsed && parsed.done && session.mode === 'inbox') send({ type: 'inbox_done', remaining: session.inboxItems.filter(it => it.status === 'pending').length });
+  }
+
+  function resolveContext(name) {
+    const contexts = config.listContexts();
+    const wanted = String(name || '').trim().toLowerCase();
+    return contexts.find(c => c.name.toLowerCase() === wanted)
+      || contexts.find(c => wanted && (c.name.toLowerCase().includes(wanted) || wanted.includes(c.name.toLowerCase())))
+      || session.context;
+  }
+
+  // Writes each decision into its context and retires the inbox item.
+  async function applyTriage(decisions) {
+    const settings = config.getSettings();
+    for (const d of decisions) {
+      if (!d || typeof d !== 'object') continue;
+      const item = session.inboxItems.find(it => it.id === String(d.item || '').trim() && it.status === 'pending');
+      if (!item) continue;
+      const kind = ['todo', 'thought', 'discard'].includes(d.kind) ? d.kind : 'thought';
+      const ctx = resolveContext(d.context);
+      const ctxSettings = config.contextSettings(ctx.id);
+      const title = String(d.title || item.text.slice(0, 60)).trim();
+      const text = String(d.text || item.text).trim();
+      const due = typeof d.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.due) ? d.due : null;
+      const linked = [];
+      try {
+        if (kind !== 'discard') {
+          const p = storage.layoutPaths(ctxSettings);
+          storage.ensureDirs({ ...p, mediaDir: null });
+          for (const [key, k] of [['people', 'people'], ['projects', 'projects'], ['topics', 'topics']]) {
+            for (const name of Array.isArray(d[key]) ? d[key] : []) {
+              const resolved = storage.upsertEntityNote(p, k, { name, note: title }, session.id);
+              if (resolved) linked.push(resolved);
+            }
+          }
+          if (kind === 'todo') inbox.appendActionItem(ctxSettings, { title, due, capturedAt: item.capturedAt, sessionId: session.id, note: text !== title ? text : '' });
+          else inbox.appendThought(ctxSettings, { title, text, capturedAt: item.capturedAt, sessionId: session.id, links: linked });
+        }
+        const movedTo = inbox.moveProcessed(item, { move: settings.inboxMoveProcessed });
+        config.markInboxProcessed(item.path, { decision: kind, context: ctx.name, movedTo, session: session.id });
+        item.status = 'done';
+        const decision = { itemId: item.id, itemName: item.name, capturedAt: item.capturedAt, kind, contextName: ctx.name, title, due };
+        session.decisions.push(decision);
+        session.addTranscript('ai', kind === 'discard' ? `[Discarded "${item.name}"]` : `[Filed "${title}" as ${kind === 'todo' ? 'a to-do' : 'a thought'} in ${ctx.name}${due ? `, due ${due}` : ''}]`);
+        send({ type: 'triage', item: { id: item.id, name: item.name }, kind, context: ctx.name, title, due, remaining: session.inboxItems.filter(it => it.status === 'pending').length });
+      } catch (e) {
+        notice(`Could not file "${title}": ${e.message}`, 'error');
+      }
+    }
   }
 
   async function handleEnd() {
@@ -355,7 +470,9 @@ function attachOrchestrator(ws) {
       summary: session.summary, insights: combinedInsights, synergy: session.synergy,
       transcript: session.transcript, mediaPath: session.mediaPath, mediaKind: session.mediaKind,
       videoAnalysis: session.videoAnalysis, paths: session.paths,
-      entities: session.entities, scores: session.scores
+      entities: session.entities, scores: session.scores,
+      sessionType: session.mode === 'inbox' ? 'inbox-review' : null,
+      extraSections: session.mode === 'inbox' ? [{ title: 'Inbox decisions', markdown: inbox.triageSummaryMarkdown(session.decisions) }] : []
     });
 
     let dossierUpdated = false;
@@ -375,7 +492,7 @@ function attachOrchestrator(ws) {
     const inVault = !!storage.findVaultRoot(session.paths.workspace);
     send({
       type: 'saved', note_path: notePath, dossier_updated: dossierUpdated, synergy: session.synergy, video_status: session.videoAnalysis,
-      entities: session.entities, base_created: baseCreated,
+      entities: session.entities, base_created: baseCreated, decisions: session.decisions.length, context: session.context.name,
       obsidian_url: inVault ? storage.obsidianUrl(notePath) : null
     });
     sessions.delete(session.id);

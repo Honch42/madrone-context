@@ -48,6 +48,11 @@
         .list { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; gap: 6px; }
         .list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: rgba(0,0,0,0.25); border-radius: 6px; padding: 8px 10px; font-size: 0.88rem; }
         .list li .src { color: var(--text-secondary); font-size: 0.8rem; }
+        .list.contexts li { flex-direction: column; align-items: stretch; gap: 6px; }
+        .list.contexts .ctx-head { display: flex; gap: 8px; align-items: center; }
+        .list.contexts .ctx-head input { flex: 1; }
+        .list.contexts .ctx-line { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-secondary); overflow-wrap: anywhere; }
+        .list.contexts .ctx-line .actions button { padding: 3px 8px; font-size: 0.75rem; }
         .list code { font-family: ui-monospace, Menlo, monospace; font-size: 0.82rem; }
         .footer { display: flex; gap: 12px; justify-content: flex-end; align-items: center; margin-top: 24px; }
         .footer .hint { flex: 1; color: var(--text-secondary); font-size: 0.85rem; }
@@ -185,6 +190,20 @@
             <div class="msg" id="google-msg"></div>
         </div>
 
+        <div class="step" id="sec-inbox">
+            <div class="row">
+                <div>
+                    <div class="step-title">Inbox folders <span id="inbox-badge" class="badge">Checking</span></div>
+                    <div class="step-sub">Optional. Where voice memos and quick notes from your phone land. "Review inbox" on the start screen walks through them and files each one into the right context.</div>
+                </div>
+                <div class="actions"><button id="btn-add-inbox" type="button">Add folder</button></div>
+            </div>
+            <div class="list" id="inbox-suggest" hidden></div>
+            <ul class="list" id="inbox-list"></ul>
+            <label class="step-sub" style="display:flex; gap:8px; align-items:center; margin-top:10px; cursor:pointer"><input type="checkbox" id="inbox-move"> Move reviewed items into an Inbox/Processed folder</label>
+            <div class="msg" id="inbox-msg"></div>
+        </div>
+
         <div class="step" id="sec-screenpipe">
             <div class="row">
                 <div>
@@ -195,28 +214,13 @@
             </div>
         </div>
 
-        <!-- Folders -->
-        <h2>Where things are saved</h2>
-        <div class="step" id="sec-workspace">
-            <div class="row">
-                <div>
-                    <div class="step-title">Notes folder</div>
-                    <div class="step-sub" id="workspace-sub"></div>
-                </div>
-                <div class="actions"><button id="btn-show-workspace" type="button" class="quiet">Show</button><button id="btn-workspace" type="button">Change</button></div>
-            </div>
-            <div class="step-sub">Session notes and your Master Dossier are plain Markdown files. Point this at an Obsidian vault to see them there.</div>
-        </div>
-
-        <div class="step" id="sec-media">
-            <div class="row">
-                <div>
-                    <div class="step-title">Recordings folder</div>
-                    <div class="step-sub" id="media-dir-sub"></div>
-                </div>
-                <div class="actions"><button id="btn-media-dir-reset" type="button" class="quiet" hidden>Use default</button><button id="btn-media-dir" type="button">Change</button></div>
-            </div>
-            <div class="step-sub">Each recording is named with its session id, so it can always be matched to its note. Move this outside a synced vault if the files get large.</div>
+        <!-- Contexts -->
+        <h2>Contexts: where notes are saved</h2>
+        <div class="step" id="sec-contexts">
+            <div class="step-sub">A context is an area of life or work with its own notes: its own Master Dossier, sessions, people and projects. Each one is a folder, either a whole Obsidian vault or a folder inside one. Pick the context in the top bar before a session.</div>
+            <ul class="list contexts" id="context-list"></ul>
+            <div class="importrow"><button id="btn-add-context" type="button">Add context</button></div>
+            <div class="msg" id="context-msg"></div>
         </div>
 
         <div class="step" id="sec-silence">
@@ -237,6 +241,7 @@
                 <dt>Camera</dt><dd>Only during a session, and only if allowed. The video goes to your recordings folder. With a Gemini model it is uploaded to Google for analysis after the session and deleted from Google when the analysis returns.</dd>
                 <dt>Claude and GPT</dt><dd>Receive the transcript of what you said, never the audio or video. They can read notes in your notes folder when you mention one, but cannot change anything.</dd>
                 <dt>Google accounts</dt><dd id="privacy-google">Read-only. Upcoming calendar events; subjects, senders and preview snippets of recent, starred, draft and deadline-related email; names of recently modified Drive files. Nothing is sent, edited or deleted. Used only when you ask ("what's coming up", "catch me up").</dd>
+                <dt>Inbox folders</dt><dd>Read only during an inbox review, and only when you start one. Voice memos are sent to Gemini for transcription; reviewed files are moved to a Processed folder inside the inbox, never deleted.</dd>
                 <dt>Screenpipe</dt><dd>Read-only, and only when you ask. Recent window titles, screen text and heard speech from your local Screenpipe database.</dd>
                 <dt>1Password</dt><dd>Only when you click a 1Password button, and only after you approve 1Password's own prompt. The app sees item titles to build the list, and reads one item's secret when you choose it.</dd>
                 <dt>Your Master Dossier</dt><dd>Included in the interviewer's instructions so it can ask informed questions.</dd>
@@ -374,10 +379,57 @@
             const profile = detected && detected.anthropicProfile && detected.anthropicProfile.found;
             $('btn-anthropic-profile').hidden = !profile || (s.anthropicAuth === 'profile' && s.keys.anthropic);
             if (profile && s.anthropicAuth === 'profile') $('anthropic-sub').textContent = `Using the Anthropic CLI sign-in for profile "${detected.anthropicProfile.profile}". Paste a key to use one instead.`;
-            // Folders
-            $('workspace-sub').textContent = s.workspaceDir;
-            $('media-dir-sub').textContent = s.mediaDir + (s.mediaDirIsDefault ? '  (default: inside the notes folder)' : '');
-            $('btn-media-dir-reset').hidden = s.mediaDirIsDefault;
+            // Contexts
+            const clist = $('context-list');
+            clist.innerHTML = '';
+            for (const c of s.contexts) {
+                const li = document.createElement('li');
+                const head = document.createElement('div'); head.className = 'ctx-head';
+                const nameInput = document.createElement('input'); nameInput.type = 'text'; nameInput.value = c.name; nameInput.setAttribute('aria-label', 'Context name');
+                nameInput.id = 'ctx-name-' + c.id;
+                const rename = document.createElement('button'); rename.type = 'button'; rename.className = 'quiet'; rename.textContent = 'Rename';
+                rename.onclick = async () => { status = await api.renameContext(c.id, nameInput.value); render(); };
+                nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') rename.click(); });
+                const active = document.createElement('span'); active.className = 'badge' + (c.id === s.activeContextId ? ' ok' : ''); active.textContent = c.id === s.activeContextId ? 'Current' : (c.vault ? 'Vault' : 'Folder');
+                head.append(nameInput, rename, active);
+                const folder = document.createElement('div'); folder.className = 'ctx-line';
+                folder.innerHTML = `<span></span><span class="actions"></span>`;
+                folder.querySelector('span').textContent = (c.exists ? '' : '(missing) ') + c.notesDir + (c.vault && c.vault !== c.notesDir ? `  · inside vault ${c.vault.split('/').pop()}` : '');
+                for (const [label, fn] of [['Show', () => api.showContext(c.id)], ['Change folder', async () => { status = await api.changeContextFolder(c.id); render(); }]]) {
+                    const b = document.createElement('button'); b.type = 'button'; b.className = 'quiet'; b.textContent = label; b.onclick = fn; folder.querySelector('.actions').appendChild(b);
+                }
+                const media = document.createElement('div'); media.className = 'ctx-line';
+                media.innerHTML = `<span></span><span class="actions"></span>`;
+                media.querySelector('span').textContent = 'Recordings: ' + c.mediaDir + (c.mediaDirIsDefault ? ' (default)' : '');
+                const mb = document.createElement('button'); mb.type = 'button'; mb.className = 'quiet'; mb.textContent = 'Change'; mb.onclick = async () => { status = await api.setContextMediaDir(c.id); render(); };
+                media.querySelector('.actions').appendChild(mb);
+                if (!c.mediaDirIsDefault) { const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'quiet'; rb.textContent = 'Use default'; rb.onclick = async () => { status = await api.resetContextMediaDir(c.id); render(); }; media.querySelector('.actions').appendChild(rb); }
+                if (s.contexts.length > 1) {
+                    const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'danger'; rm.textContent = 'Remove'; rm.style.alignSelf = 'flex-end';
+                    rm.onclick = async () => { if (confirm(`Remove the context "${c.name}" from Madrone? Its notes stay on disk.`)) { status = await api.removeContext(c.id); render(); } };
+                    li.append(head, folder, media, rm);
+                } else li.append(head, folder, media);
+                clist.appendChild(li);
+            }
+            // Inbox
+            const ilist = $('inbox-list');
+            ilist.innerHTML = '';
+            for (const i of s.inboxes) {
+                const li = document.createElement('li');
+                const label = document.createElement('span'); label.textContent = (i.exists ? '' : '(missing) ') + i.dir;
+                const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'danger'; rm.textContent = 'Remove';
+                rm.onclick = async () => { status = await api.removeInbox(i.id); render(); };
+                li.append(label, rm); ilist.appendChild(li);
+            }
+            badge('inbox-badge', s.inboxes.length ? (s.inboxNew ? `${s.inboxNew} new` : 'Empty') : 'Optional', s.inboxes.length ? 'ok' : '');
+            const sug = $('inbox-suggest');
+            if (s.inboxSuggestion) {
+                sug.hidden = false;
+                sug.innerHTML = '<li><span>Found a folder that looks like an inbox:<br><span class="src"></span></span><button type="button">Use it</button></li>';
+                sug.querySelector('.src').textContent = s.inboxSuggestion;
+                sug.querySelector('button').onclick = async () => { status = await api.addInbox(s.inboxSuggestion); render(); };
+            } else sug.hidden = true;
+            $('inbox-move').checked = !!s.inboxMoveProcessed;
             // Screenpipe
             if (s.screenpipe.found) { badge('sp-badge', 'Detected', 'ok'); $('sp-sub').textContent = s.screenpipe.found; }
             else { badge('sp-badge', 'Optional', ''); $('sp-sub').textContent = 'Not found. If you use Screenpipe, choose its db.sqlite file to let interviews pull in recent screen activity when you ask.'; }
@@ -514,10 +566,9 @@
             catch (e) { msg.className = 'msg err'; msg.textContent = cleanError(e); }
         });
         $('btn-more').addEventListener('click', () => { showOptional = true; $('wizard-more').hidden = true; render(); });
-        $('btn-workspace').addEventListener('click', async () => { status = await api.selectWorkspace(); render(); });
-        $('btn-show-workspace').addEventListener('click', () => api.showWorkspace());
-        $('btn-media-dir').addEventListener('click', async () => { status = await api.selectMediaDir(); render(); });
-        $('btn-media-dir-reset').addEventListener('click', async () => { status = await api.resetMediaDir(); render(); });
+        $('btn-add-context').addEventListener('click', async () => { status = await api.addContext(); render(); });
+        $('btn-add-inbox').addEventListener('click', async () => { status = await api.addInbox(); render(); });
+        $('inbox-move').addEventListener('change', async () => { status = await api.setSetting('inboxMoveProcessed', $('inbox-move').checked); render(); });
         $('btn-sp').addEventListener('click', async () => { status = await api.selectScreenpipe(); render(); });
         $('btn-sp-clear').addEventListener('click', async () => { status = await api.clearScreenpipe(); render(); });
         $('btn-google-client').addEventListener('click', async () => {

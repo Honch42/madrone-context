@@ -110,7 +110,7 @@ function forgetEverything() {
   for (const name of SECRET_NAMES) s.delete(`keySource.${name}`);
   for (const name of ['legacyGoogleClientJson', 'googleAccounts', 'googleClientPath', 'screenpipeDbPath', 'mediaDir', 'workspaceDir',
     'hasCompletedWizard', 'silenceSeconds', 'sessionMinutesSoftLimit', 'lastModel', 'lastPersona', 'anthropicAuth',
-    'googleSuggestionDismissed', 'legacyImportDone']) s.delete(name);
+    'googleSuggestionDismissed', 'legacyImportDone', 'contexts', 'activeContextId', 'inboxes', 'inboxProcessed', 'inboxMoveProcessed']) s.delete(name);
 }
 
 // ---------------------------------------------------------------------------
@@ -120,14 +120,122 @@ function defaultWorkspace() {
   return path.join(os.homedir(), 'Documents', 'MadroneContext');
 }
 
+// ---------------------------------------------------------------------------
+// Contexts: each is a name plus a notes folder (a whole vault or a subfolder of
+// one) with its own Madrone/ folder, dossier, sessions and entity notes.
+
+function newId(prefix) {
+  return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function listContexts() {
+  const s = getStore();
+  let list = s.get('contexts');
+  if (!Array.isArray(list) || list.length === 0) {
+    // First run, or an install from before contexts existed: the single notes
+    // folder becomes the first context.
+    const dir = s.get('workspaceDir') || defaultWorkspace();
+    const name = dir === defaultWorkspace() ? 'Personal' : path.basename(dir);
+    list = [{ id: newId('ctx'), name, notesDir: dir, mediaDir: s.get('mediaDir') || null }];
+    s.set('contexts', list);
+  }
+  return list.map(c => ({ ...c, mediaDir: c.mediaDir || null }));
+}
+
+function getActiveContextId() {
+  const list = listContexts();
+  const id = getStore().get('activeContextId');
+  return list.find(c => c.id === id) ? id : list[0].id;
+}
+
+function getContext(id) {
+  const list = listContexts();
+  return list.find(c => c.id === id) || list.find(c => c.id === getActiveContextId()) || list[0];
+}
+
+function setActiveContext(id) {
+  if (listContexts().find(c => c.id === id)) getStore().set('activeContextId', id);
+}
+
+function addContext({ name, notesDir, mediaDir = null }) {
+  const list = listContexts();
+  const entry = { id: newId('ctx'), name: (name || path.basename(notesDir)).trim() || path.basename(notesDir), notesDir, mediaDir };
+  list.push(entry);
+  getStore().set('contexts', list);
+  return entry;
+}
+
+function updateContext(id, patch) {
+  const list = listContexts();
+  const c = list.find(x => x.id === id);
+  if (!c) return null;
+  if (typeof patch.name === 'string' && patch.name.trim()) c.name = patch.name.trim();
+  if (typeof patch.notesDir === 'string' && patch.notesDir) c.notesDir = patch.notesDir;
+  if ('mediaDir' in patch) c.mediaDir = patch.mediaDir || null;
+  getStore().set('contexts', list);
+  return c;
+}
+
+function removeContext(id) {
+  const list = listContexts();
+  if (list.length <= 1) throw new Error('Keep at least one context.');
+  getStore().set('contexts', list.filter(c => c.id !== id));
+  if (getStore().get('activeContextId') === id) getStore().delete('activeContextId');
+}
+
+// Settings resolved for one context: the folders the storage layer uses.
+function contextSettings(id) {
+  const c = getContext(id);
+  const base = getSettings();
+  return { ...base, context: c, workspaceDir: c.notesDir, mediaDir: c.mediaDir || path.join(c.notesDir, 'Madrone', 'archives') };
+}
+
+// ---------------------------------------------------------------------------
+// Inbox folders: where captures from the phone land before they are triaged.
+
+function listInboxes() {
+  return (getStore().get('inboxes') || []).map(i => ({ ...i }));
+}
+
+function addInbox({ name, dir }) {
+  const list = listInboxes();
+  if (list.find(i => i.dir === dir)) return list.find(i => i.dir === dir);
+  const entry = { id: newId('inbox'), name: (name || path.basename(dir)).trim() || 'Inbox', dir };
+  list.push(entry);
+  getStore().set('inboxes', list);
+  return entry;
+}
+
+function removeInbox(id) {
+  getStore().set('inboxes', listInboxes().filter(i => i.id !== id));
+}
+
+function getInboxProcessed() {
+  return getStore().get('inboxProcessed') || {};
+}
+
+function markInboxProcessed(filePath, info) {
+  const map = getInboxProcessed();
+  map[filePath] = { ...info, processedAt: new Date().toISOString() };
+  // Keep the map from growing without bound.
+  const keys = Object.keys(map);
+  if (keys.length > 2000) for (const k of keys.slice(0, keys.length - 2000)) delete map[k];
+  getStore().set('inboxProcessed', map);
+}
+
 function getSettings() {
   const s = getStore();
-  const workspaceDir = s.get('workspaceDir') || defaultWorkspace();
+  const active = getContext(getActiveContextId());
+  const workspaceDir = active.notesDir;
   return {
     workspaceDir,
-    // Where session recordings go. Defaults to <workspace>/archives so notes and
-    // recordings travel together; can be pointed outside an Obsidian vault.
-    mediaDir: s.get('mediaDir') || path.join(workspaceDir, 'Madrone', 'archives'),
+    // Where session recordings go. Defaults to <notes folder>/Madrone/archives so
+    // notes and recordings travel together; can be pointed outside an Obsidian vault.
+    mediaDir: active.mediaDir || path.join(workspaceDir, 'Madrone', 'archives'),
+    contexts: listContexts(),
+    activeContextId: active.id,
+    inboxes: listInboxes(),
+    inboxMoveProcessed: s.get('inboxMoveProcessed') !== false,
     screenpipeDbPath: s.get('screenpipeDbPath') || null,
     googleClientPath: s.get('googleClientPath') || null,
     hasCompletedWizard: !!s.get('hasCompletedWizard'),
@@ -205,6 +313,19 @@ module.exports = {
   forgetEverything,
   getKeySource,
   setKeySource,
+  listContexts,
+  getActiveContextId,
+  getContext,
+  setActiveContext,
+  addContext,
+  updateContext,
+  removeContext,
+  contextSettings,
+  listInboxes,
+  addInbox,
+  removeInbox,
+  getInboxProcessed,
+  markInboxProcessed,
   encryptionAvailable,
   getSecret,
   setSecret,

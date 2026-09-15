@@ -339,7 +339,8 @@ function buildSessionNote(session) {
   const {
     sessionId, startedAt, endedAt, model, persona, summary, insights, synergy,
     transcript = [], mediaPath, mediaKind, videoAnalysis, paths, deepDive,
-    entities = { people: [], projects: [], topics: [] }, scores = {}
+    entities = { people: [], projects: [], topics: [] }, scores = {},
+    sessionType = null, extraSections = []
   } = session;
   const started = new Date(startedAt);
   const durationSec = endedAt ? (new Date(endedAt) - started) / 1000 : 0;
@@ -354,7 +355,7 @@ function buildSessionNote(session) {
     `duration_min: ${Math.round(durationSec / 60)}`,
     `model: ${model}`,
     `persona: ${persona}`,
-    `type: ${deepDive ? 'deep-dive' : 'interview'}`,
+    `type: ${sessionType || (deepDive ? 'deep-dive' : 'interview')}`,
     yamlLinkList('people', entities.people),
     yamlLinkList('projects', entities.projects),
     yamlLinkList('topics', entities.topics),
@@ -378,6 +379,11 @@ function buildSessionNote(session) {
   if (entities.projects.length) linkLine.push(`**Projects:** ${entities.projects.map(n => `[[${n}]]`).join(', ')}`);
   if (entities.topics.length) linkLine.push(`**Topics:** ${entities.topics.map(n => `[[${n}]]`).join(', ')}`);
   if (linkLine.length) { lines.push(linkLine.join('  ·  ')); lines.push(''); }
+  for (const sec of extraSections) {
+    lines.push(`## ${sec.title}`);
+    lines.push(String(sec.markdown || '').trim());
+    lines.push('');
+  }
   lines.push('## Summary');
   lines.push(stripFrontmatter(summary || 'No summary was generated.').trim());
   lines.push('');

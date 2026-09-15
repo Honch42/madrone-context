@@ -143,9 +143,28 @@ Each note contains the summary, insights, the behavioral-alignment report (Gemin
 
 If you used an earlier version that wrote `master_dossier.md` and `sessions/` straight into the notes folder, the app moves them into `Madrone/` the first time it runs.
 
+## Contexts: keeping areas of life separate
+
+A context is an area of life or work with its own notes: its own Master Dossier, sessions, people and projects. Each context is a folder, either a whole Obsidian vault or a folder inside one, so you can keep four areas as four folders in one iCloud vault, or point each at a separate vault. Add and name them in **Settings > Contexts**, and pick the one you want in the top bar before a session. Each context gets its own `Madrone/` folder as described above.
+
+## The inbox: captures from your phone
+
+Throughout the day you may record voice memos or jot quick notes on your phone. Point the app at the folder where they land (**Settings > Inbox folders**; the app suggests a folder named Inbox if it finds one in your vault), and the start screen shows **Review inbox (N new)**.
+
+A review is a short session of its own. The app downloads anything iCloud hasn't fetched yet, transcribes the voice memos, then walks through the items one at a time: it reads each back, asks what's unclear, and you say what it is and where it belongs. Each decision is applied immediately:
+
+- **To-dos** go to `Madrone/Action Items.md` in the chosen context, as `- [ ] title 📅 date` lines that the Obsidian Tasks plugin understands.
+- **Thoughts** go to a dated note in `Madrone/Thoughts/` in the chosen context.
+- People, projects and topics mentioned become entity notes in that context.
+- The original file moves to `Inbox/Processed/` (or stays put, if you turn that off in Settings).
+
+When you finish with Cmd+Enter, the review is saved as a session note in the context you started from, with a list of every decision.
+
+Getting captures into the folder: Obsidian's mobile app has a built-in audio recorder (set its attachment folder to your inbox), Apple's Voice Memos can share a recording to Files inside the vault, and any note-taking shortcut that writes a Markdown file there works. Audio can be `.m4a`, `.mp3`, `.wav`, `.webm`, `.ogg` or `.opus`; notes are `.md` or `.txt`.
+
 ## Using it with Obsidian
 
-Point the notes folder at your vault (Settings > Notes folder) and the app becomes part of the vault's graph rather than just a folder in it:
+Point a context at your vault (Settings > Contexts) and the app becomes part of the vault's graph rather than just a folder in it:
 
 - **People, projects and topics become real notes.** After each session the app creates or updates a note in `People/`, `Projects/` or `Topics/` for everything the session discussed, with a dated "Mentions" line linking back to the session. Session notes and the Master Dossier link to them. Open the graph view and sessions cluster around the things you actually talk about; open a project note and its backlinks list every session where it came up.
 - **Names stay consistent.** Before writing a summary the model is shown the names of the notes that already exist, so it reuses `[[Q3 Roadmap]]` instead of inventing a variant. If a variant slips through, add it to that note's `aliases` property and Obsidian resolves it.
@@ -230,5 +249,6 @@ Layout:
 - `src/prompts.js`: every prompt, including the four personas.
 - `src/storage.js`: session ids, note format, dossier backups.
 - `src/google.js`, `src/screenpipe.js`, `src/mcp.js`: context sources.
+- `src/inbox.js`: inbox scanning, iCloud download, and writing to-dos and thoughts into a context.
 - `src/config.js`: settings and encrypted secrets.
 - `frontend/`: the interview screen (`index.html`, `app.js`, `style.css`) and the setup/settings page (`settings.html`).

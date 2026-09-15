@@ -11,6 +11,7 @@ const statusDot = statusIndicator.querySelector('.dot');
 const timerEl = $('timer');
 const modelSelect = $('model-select');
 const personaSelect = $('persona-select');
+const contextSelect = $('context-select');
 const hiddenVideo = $('hidden-video');
 
 const ui = {
@@ -109,6 +110,7 @@ function formatClock(seconds) {
 function lockSelectors(locked) {
   modelSelect.disabled = locked;
   personaSelect.disabled = locked;
+  contextSelect.disabled = locked;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +143,29 @@ async function loadCatalog() {
       personaSelect.appendChild(opt);
     }
     if (models.lastPersona) personaSelect.value = models.lastPersona;
+
+    contextSelect.innerHTML = '';
+    for (const c of status.contexts || []) {
+      const opt = document.createElement('option');
+      opt.value = c.id; opt.textContent = c.name; opt.title = c.notesDir;
+      contextSelect.appendChild(opt);
+    }
+    if (status.activeContextId) contextSelect.value = status.activeContextId;
+
+    const inboxBtn = $('btn-inbox');
+    if (!status.inboxConfigured) {
+      inboxBtn.innerText = 'Review inbox';
+      inboxBtn.disabled = true;
+      $('inbox-hint').innerText = 'To review voice memos and notes captured on your phone, add an inbox folder in Settings.';
+    } else if (status.inboxNew === 0) {
+      inboxBtn.innerText = 'Review inbox';
+      inboxBtn.disabled = true;
+      $('inbox-hint').innerText = 'Your inbox has no new items.';
+    } else {
+      inboxBtn.innerText = `Review inbox (${status.inboxNew} new)`;
+      inboxBtn.disabled = false;
+      $('inbox-hint').innerText = `${status.inboxNew} captured ${status.inboxNew === 1 ? 'item' : 'items'} waiting to be sorted into your contexts.`;
+    }
 
     ui.silenceMs = Math.max(600, Number(status.silenceSeconds || 1.8) * 1000);
     ui.softLimitMinutes = Number(status.sessionMinutesSoftLimit || 15);
@@ -457,12 +482,14 @@ function stopTimer() {
 // ---------------------------------------------------------------------------
 // Session lifecycle
 
-async function beginSession({ deepDive = false, context = '' } = {}) {
+async function beginSession({ deepDive = false, context = '', mode = 'interview' } = {}) {
   showOverlay(null);
   lockSelectors(true);
   ui.state = 'starting';
   ui.frozen = false;
   ui.review = null;
+  ui.mode = mode;
+  $('triage-progress').hidden = true;
   transcriptDisplay.innerText = '';
   setQuestion('Starting up…', true);
   setStatus('STARTING CAMERA & MIC', 'thinking');
@@ -479,7 +506,7 @@ async function beginSession({ deepDive = false, context = '' } = {}) {
   ui.orchestratorWs = ws;
   ws.onopen = () => {
     setStatus('CONNECTING', 'thinking');
-    const payload = { type: 'init', model: modelSelect.value, persona: personaSelect.value };
+    const payload = { type: 'init', model: modelSelect.value, persona: personaSelect.value, context_id: contextSelect.value || null, mode };
     if (deepDive) { payload.deep_dive = true; payload.context = context; }
     ws.send(JSON.stringify(payload));
   };
@@ -498,6 +525,26 @@ function handleServerMessage(data) {
       ui.session = data;
       startBackgroundRecording();
       startTimer();
+      if (data.mode === 'inbox') {
+        ui.inboxTotal = data.inbox_total || 0;
+        ui.inboxDone = 0;
+        $('triage-progress').innerText = `Inbox 0 / ${ui.inboxTotal}`;
+        $('triage-progress').hidden = false;
+      }
+      break;
+    case 'inbox_ready':
+      ui.inboxTotal = data.total;
+      $('triage-progress').innerText = `Inbox 0 / ${ui.inboxTotal}`;
+      break;
+    case 'triage': {
+      ui.inboxDone = ui.inboxTotal - data.remaining;
+      $('triage-progress').innerText = `Inbox ${ui.inboxDone} / ${ui.inboxTotal}`;
+      const what = data.kind === 'discard' ? 'Discarded' : data.kind === 'todo' ? 'To-do' : 'Thought';
+      notify(data.kind === 'discard' ? `Discarded "${data.item.name}".` : `${what} in ${data.context}: "${data.title}"${data.due ? `, due ${data.due}` : ''}.`, 'info', 7000);
+      break;
+    }
+    case 'inbox_done':
+      notify('Inbox clear. Press Cmd+Enter to finish and save the review.', 'info', 15000);
       break;
     case 'status':
       if (ui.state !== 'review') setQuestion(data.text, true);
@@ -652,9 +699,10 @@ function showDone(data) {
   $('done-title').innerText = 'Saved';
   const linked = data.entities ? [...(data.entities.people || []), ...(data.entities.projects || []), ...(data.entities.topics || [])] : [];
   const linkedText = linked.length ? `\nLinked notes: ${linked.slice(0, 6).join(', ')}${linked.length > 6 ? ` and ${linked.length - 6} more` : ''}.` : '';
+  const decisionsText = data.decisions ? `\n${data.decisions} inbox ${data.decisions === 1 ? 'item' : 'items'} filed.` : '';
   $('done-text').innerText = (data.dossier_updated
-    ? `Session note saved and your Master Dossier updated.`
-    : `Session note saved.`) + linkedText + `\n${data.note_path}`;
+    ? `Session note saved in ${data.context || 'your notes'} and its Master Dossier updated.`
+    : `Session note saved in ${data.context || 'your notes'}.`) + decisionsText + linkedText + `\n${data.note_path}`;
   ui.lastObsidianUrl = data.obsidian_url || null;
   $('btn-open-obsidian').hidden = !(window.electronAPI && data.obsidian_url);
   $('btn-show-note').hidden = !window.electronAPI;
@@ -686,6 +734,7 @@ function resetToStart() {
   ui.frozen = false;
   lockSelectors(false);
   timerEl.hidden = true;
+  $('triage-progress').hidden = true;
   transcriptDisplay.innerText = '';
   setQuestion('Ready when you are.');
   setStatus('IDLE', 'idle');
@@ -706,7 +755,9 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); concludeSession(); }
 });
 
-$('btn-start').addEventListener('click', () => beginSession());
+$('btn-start').addEventListener('click', () => beginSession({ mode: 'interview' }));
+$('btn-inbox').addEventListener('click', () => beginSession({ mode: 'inbox' }));
+contextSelect.addEventListener('change', () => { if (window.electronAPI) window.electronAPI.setActiveContext(contextSelect.value).then(() => loadCatalog()); });
 modelSelect.addEventListener('change', updateModelReadiness);
 $('key-panel-save').addEventListener('click', async () => {
   const vendor = $('key-panel').dataset.vendor;

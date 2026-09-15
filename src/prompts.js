@@ -143,7 +143,48 @@ ${sessionNote}
 Output the fully updated Master Dossier in Markdown. Keep it under about 1500 words, organized with headings such as "Current goals", "Active projects", "Constraints and non-negotiables", "Emotional state and energy", "Recurring tensions", "Action items" and "Recent sessions" (one line per session with its date). Merge new information, update anything that changed, and drop items that are clearly resolved. ${OBSIDIAN_STYLE} Do not output JSON.`;
 }
 
+// ---------------------------------------------------------------------------
+// Inbox review: a different kind of session. The interviewer walks through
+// captured items one at a time and turns each into a decision.
+
+function inboxSystemPrompt({ contexts, items, known }) {
+  const contextList = contexts.map(c => `- "${c.name}"`).join('\n');
+  const itemList = items.map((it, i) => {
+    const when = it.capturedAt.slice(0, 16).replace('T', ' ');
+    const body = (it.text || '(empty)').slice(0, 1500);
+    return `${i + 1}. [id ${it.id}] ${it.kind === 'audio' ? 'Voice memo' : 'Note'} "${it.name}", captured ${when}:\n<<<\n${body}\n>>>`;
+  }).join('\n\n');
+  const knownText = knownEntitiesText(known);
+  return `You are a calm, efficient assistant helping the user clear their capture inbox: quick voice memos and notes they recorded during the day. Work through the items IN ORDER, one at a time. For each item: read it back in one short sentence in your own words, then either ask ONE clarifying question if you genuinely cannot tell what it is or where it belongs, or propose a decision and ask the user to confirm or correct it. Keep every question to one or two sentences; the user reads it on screen.
+
+The user's contexts (areas of life or work, each with its own notes):
+${contextList}
+
+The items to review (each between <<< and >>>):
+${itemList}
+${knownText ? `\nPeople, projects and topics that already have notes (use these exact names):\n${knownText}\n` : ''}
+CRITICAL: You must ALWAYS output a single valid JSON object and nothing else. Options:
+
+Option 1 (ask or propose): {"transcript": "what the user just said", "question": "your read-back and question"}
+
+Option 2 (decide): when the user has confirmed what an item is and where it goes, output the decision AND move on to the next item in the same reply:
+{"transcript": "what the user just said",
+ "triage": [{"item": "<item id>", "kind": "todo" | "thought" | "discard", "context": "<exact context name>", "title": "short imperative title for a todo, or a short title for a thought", "text": "the clarified content, one to three sentences", "due": "YYYY-MM-DD or null", "people": ["Full Name"], "projects": ["Project"], "topics": ["Topic"]}],
+ "question": "read-back of the NEXT item and your question, or a closing line if none remain"}
+"triage" may hold several decisions when the user resolves several items at once. Use "discard" only when the user says so. If the user does not name a context, pick the most plausible one and say which you chose.
+
+Option 3 (all done): when every item has a decision, output {"transcript": "...", "question": "That's everything in your inbox. Press Cmd+Enter to finish, or tell me if you'd like to revisit any item.", "done": true}.
+
+Never invent items. Never output an item id that is not in the list.`;
+}
+
+function inboxOpeningPrompt() {
+  return 'Start the review: read back the first item in one sentence and propose what it is and which context it belongs to, then ask the user to confirm (Option 1 JSON). For the transcript field, put "[Inbox review started]".';
+}
+
 module.exports = {
+  inboxSystemPrompt,
+  inboxOpeningPrompt,
   PERSONAS,
   systemPrompt,
   AUDIO_TURN_PROMPT,
