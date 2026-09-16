@@ -157,12 +157,12 @@ function createApp() {
   return app;
 }
 
-async function gatherRearwardContext() {
-  const settings = config.getSettings();
+async function gatherRearwardContext(ctxSettings) {
+  const settings = ctxSettings || config.getSettings();
   let sinceIso = null;
   try { sinceIso = JSON.parse(fs.readFileSync(storage.layoutPaths(settings).syncStatePath, 'utf-8')).last_sync || null; } catch (e) { /* first run */ }
   const [g, sp] = await Promise.all([
-    googleCtx.fetchRearwardContext({ sinceIso }),
+    googleCtx.fetchRearwardContext({ sinceIso, accounts: settings.googleAccounts }),
     screenpipe.getScreenpipeContext(settings.screenpipeDbPath)
   ]);
   const notices = [...g.notices];
@@ -170,8 +170,9 @@ async function gatherRearwardContext() {
   return { text: [g.text, sp.text].filter(Boolean).join('\n\n'), notices };
 }
 
-async function gatherForwardContext() {
-  return googleCtx.fetchForwardContext();
+async function gatherForwardContext(ctxSettings) {
+  const settings = ctxSettings || config.getSettings();
+  return googleCtx.fetchForwardContext({ accounts: settings.googleAccounts });
 }
 
 // ---------------------------------------------------------------------------
@@ -308,14 +309,14 @@ function attachOrchestrator(ws) {
     let question = null;
     if (parsed && parsed.tool === 'fetch_rearward_context') {
       status('Pulling up your recent context…');
-      const ctx = await gatherRearwardContext();
+      const ctx = await gatherRearwardContext(session.ctxSettings);
       ctx.notices.forEach(n => notice(n, 'info', n.startsWith('No Google account') ? 'connect_google' : (n.startsWith('Screenpipe') ? 'screenpipe' : null)));
       const follow = await session.provider.respond(prompts.contextFollowupPrompt('rearward', ctx.text || '(No context sources are connected.)') + note);
       const fp = providers.extractJson(follow);
       question = (fp && fp.question) || follow;
     } else if (parsed && parsed.tool === 'fetch_forward_context') {
       status('Pulling up your calendar…');
-      const ctx = await gatherForwardContext();
+      const ctx = await gatherForwardContext(session.ctxSettings);
       ctx.notices.forEach(n => notice(n, 'info', n.startsWith('No Google account') ? 'connect_google' : null));
       const follow = await session.provider.respond(prompts.contextFollowupPrompt('forward', ctx.text || '(No calendar sources are connected.)') + note);
       const fp = providers.extractJson(follow);

@@ -176,6 +176,36 @@ function updateContext(id, patch) {
   return c;
 }
 
+// Which connected Google accounts a context draws on.
+//   null       -> every connected account, including ones connected later (the
+//                 default, and what every context has until scoped explicitly)
+//   []         -> no Google accounts at all for this context, on purpose
+//   [id, ...]  -> exactly those accounts
+function setContextGoogleAccounts(id, accountIds) {
+  const list = listContexts();
+  const c = list.find(x => x.id === id);
+  if (!c) return null;
+  if (accountIds === null) {
+    c.googleAccountIds = null;
+  } else {
+    const valid = new Set(listGoogleAccounts().map(a => a.id));
+    c.googleAccountIds = Array.isArray(accountIds) ? accountIds.filter(a => valid.has(a)) : null;
+  }
+  getStore().set('contexts', list);
+  return c;
+}
+
+// Resolves a context's Google account scope to the actual connected accounts.
+function googleAccountsForContext(id) {
+  const c = getContext(id);
+  const all = listGoogleAccounts();
+  if (!Array.isArray(c.googleAccountIds)) return all; // never scoped: all accounts, present and future
+  if (c.googleAccountIds.length === 0) return []; // explicitly scoped to none
+  const wanted = new Set(c.googleAccountIds);
+  const scoped = all.filter(a => wanted.has(a.id));
+  return scoped.length ? scoped : all; // every named account has since been disconnected; fall back rather than go silently blank
+}
+
 function removeContext(id) {
   const list = listContexts();
   if (list.length <= 1) throw new Error('Keep at least one context.');
@@ -187,7 +217,7 @@ function removeContext(id) {
 function contextSettings(id) {
   const c = getContext(id);
   const base = getSettings();
-  return { ...base, context: c, workspaceDir: c.notesDir, mediaDir: c.mediaDir || path.join(c.notesDir, 'Madrone', 'archives') };
+  return { ...base, context: c, workspaceDir: c.notesDir, mediaDir: c.mediaDir || path.join(c.notesDir, 'Madrone', 'archives'), googleAccounts: googleAccountsForContext(c.id) };
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +351,8 @@ module.exports = {
   updateContext,
   removeContext,
   contextSettings,
+  setContextGoogleAccounts,
+  googleAccountsForContext,
   listInboxes,
   addInbox,
   removeInbox,

@@ -217,7 +217,7 @@
         <!-- Contexts -->
         <h2>Contexts: where notes are saved</h2>
         <div class="step" id="sec-contexts">
-            <div class="step-sub">A context is an area of life or work with its own notes: its own Master Dossier, sessions, people and projects. Each one is a folder, either a whole Obsidian vault or a folder inside one. Pick the context in the top bar before a session.</div>
+            <div class="step-sub">A context is an area of life or work with its own notes: its own Master Dossier, sessions, people and projects. Each one is a folder, either a whole Obsidian vault or a folder inside one. Pick the context in the top bar before a session. If you have more than one Google account connected, choose which ones apply to each context, so an interview never pulls in email from an unrelated area.</div>
             <ul class="list contexts" id="context-list"></ul>
             <div class="importrow"><button id="btn-add-context" type="button">Add context</button></div>
             <div class="msg" id="context-msg"></div>
@@ -240,7 +240,7 @@
                 <dt>Microphone</dt><dd>Only during a session. Each answer is sent to Gemini for transcription; with a Gemini model, the interviewer hears it too.</dd>
                 <dt>Camera</dt><dd>Only during a session, and only if allowed. The video goes to your recordings folder. With a Gemini model it is uploaded to Google for analysis after the session and deleted from Google when the analysis returns.</dd>
                 <dt>Claude and GPT</dt><dd>Receive the transcript of what you said, never the audio or video. They can read notes in your notes folder when you mention one, but cannot change anything.</dd>
-                <dt>Google accounts</dt><dd id="privacy-google">Read-only. Upcoming calendar events; subjects, senders and preview snippets of recent, starred, draft and deadline-related email; names of recently modified Drive files. Nothing is sent, edited or deleted. Used only when you ask ("what's coming up", "catch me up").</dd>
+                <dt>Google accounts</dt><dd id="privacy-google">Read-only. Upcoming calendar events; subjects, senders and preview snippets of recent, starred, draft and deadline-related email; names of recently modified Drive files. Nothing is sent, edited or deleted. Used only when you ask ("what's coming up", "catch me up"), and only the accounts assigned to the active context if you've connected more than one.</dd>
                 <dt>Inbox folders</dt><dd>Read only during an inbox review, and only when you start one. Voice memos are sent to Gemini for transcription; reviewed files are moved to a Processed folder inside the inbox, never deleted.</dd>
                 <dt>Screenpipe</dt><dd>Read-only, and only when you ask. Recent window titles, screen text and heard speech from your local Screenpipe database.</dd>
                 <dt>1Password</dt><dd>Only when you click a 1Password button, and only after you approve 1Password's own prompt. The app sees item titles to build the list, and reads one item's secret when you choose it.</dd>
@@ -404,11 +404,35 @@
                 const mb = document.createElement('button'); mb.type = 'button'; mb.className = 'quiet'; mb.textContent = 'Change'; mb.onclick = async () => { status = await api.setContextMediaDir(c.id); render(); };
                 media.querySelector('.actions').appendChild(mb);
                 if (!c.mediaDirIsDefault) { const rb = document.createElement('button'); rb.type = 'button'; rb.className = 'quiet'; rb.textContent = 'Use default'; rb.onclick = async () => { status = await api.resetContextMediaDir(c.id); render(); }; media.querySelector('.actions').appendChild(rb); }
+                li.append(head, folder, media);
+                const accounts = (s.google.accounts || []);
+                if (accounts.length > 1) {
+                    const gRow = document.createElement('div'); gRow.className = 'ctx-line'; gRow.style.flexWrap = 'wrap'; gRow.style.gap = '10px';
+                    const gLabel = document.createElement('span'); gLabel.textContent = 'Google accounts for this context:';
+                    gRow.appendChild(gLabel);
+                    const scoped = Array.isArray(c.googleAccountIds) && c.googleAccountIds.length ? new Set(c.googleAccountIds) : null;
+                    for (const a of accounts) {
+                        const wrap = document.createElement('label'); wrap.style.display = 'flex'; wrap.style.gap = '4px'; wrap.style.alignItems = 'center'; wrap.style.cursor = 'pointer';
+                        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = scoped ? scoped.has(a.id) : true;
+                        cb.addEventListener('change', async () => {
+                            const boxes = [...gRow.querySelectorAll('input[type=checkbox]')];
+                            const checked = boxes.filter(b => b.checked).map(b => b.dataset.accountId);
+                            // Checking every box means "all accounts" (the default), same as none scoped.
+                            status = await api.setContextGoogleAccounts(c.id, checked.length === accounts.length ? null : checked);
+                            render();
+                        });
+                        cb.dataset.accountId = a.id;
+                        const txt = document.createElement('span'); txt.textContent = a.label;
+                        wrap.append(cb, txt);
+                        gRow.appendChild(wrap);
+                    }
+                    li.append(gRow);
+                }
                 if (s.contexts.length > 1) {
                     const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'danger'; rm.textContent = 'Remove'; rm.style.alignSelf = 'flex-end';
                     rm.onclick = async () => { if (confirm(`Remove the context "${c.name}" from Madrone? Its notes stay on disk.`)) { status = await api.removeContext(c.id); render(); } };
-                    li.append(head, folder, media, rm);
-                } else li.append(head, folder, media);
+                    li.append(rm);
+                }
                 clist.appendChild(li);
             }
             // Inbox
