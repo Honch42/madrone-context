@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setContextMediaDir: (id) => ipcRenderer.invoke('set-context-media-dir', id),
   resetContextMediaDir: (id) => ipcRenderer.invoke('reset-context-media-dir', id),
   showContext: (id) => ipcRenderer.invoke('show-context', id),
+  setContextGoogleAccounts: (id, accountIds) => ipcRenderer.invoke('set-context-google-accounts', id, accountIds),
   addInbox: (presetDir) => ipcRenderer.invoke('add-inbox', presetDir || null),
   removeInbox: (id) => ipcRenderer.invoke('remove-inbox', id),
   showPath: (target) => ipcRenderer.invoke('show-path', target),

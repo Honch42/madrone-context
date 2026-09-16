@@ -142,12 +142,12 @@ async function subjectsFor(gmail, ids, withSnippet) {
 // ---------------------------------------------------------------------------
 // Context fetches. Each returns { text, notices[] }.
 
-async function fetchRearwardContext({ sinceIso, perAccountTimeoutMs = 8000 } = {}) {
-  const accounts = config.listGoogleAccounts();
+async function fetchRearwardContext({ sinceIso, perAccountTimeoutMs = 8000, accounts: accountsIn } = {}) {
+  const accounts = accountsIn || config.listGoogleAccounts();
   const notices = [];
   const lines = [];
   if (accounts.length === 0) {
-    return { text: '', notices: ['No Google account is connected, so there is no email or document context yet.'] };
+    return { text: '', notices: [accountsIn ? 'This context has no Google account assigned, so there is no email or document context yet.' : 'No Google account is connected, so there is no email or document context yet.'] };
   }
   const since = sinceIso ? new Date(sinceIso) : new Date(Date.now() - 86400000);
   const unix = Math.floor(since.getTime() / 1000);
@@ -185,12 +185,12 @@ async function fetchRearwardContext({ sinceIso, perAccountTimeoutMs = 8000 } = {
   return { text: lines.join('\n'), notices };
 }
 
-async function fetchForwardContext({ perAccountTimeoutMs = 8000 } = {}) {
-  const accounts = config.listGoogleAccounts();
+async function fetchForwardContext({ perAccountTimeoutMs = 8000, accounts: accountsIn } = {}) {
+  const accounts = accountsIn || config.listGoogleAccounts();
   const notices = [];
   const lines = [];
   if (accounts.length === 0) {
-    return { text: '', notices: ['No Google account is connected, so there is no calendar context yet.'] };
+    return { text: '', notices: [accountsIn ? 'This context has no Google account assigned, so there is no calendar context yet.' : 'No Google account is connected, so there is no calendar context yet.'] };
   }
   const now = new Date();
   const in7Days = new Date(now.getTime() + 7 * 86400000);

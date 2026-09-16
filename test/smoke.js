@@ -258,6 +258,28 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   const note3 = fs.readFileSync(saved3.note_path, 'utf-8');
   assert(saved3.decisions === 2 && note3.includes('type: inbox-review') && note3.includes('## Inbox decisions') && note3.includes('todo → Personal'), 'review session note records the decisions');
 
+  // ---- Per-context Google account scoping ----
+  const personalCtxId = personalId;
+  const collectiveCtxId = work.id;
+  const acctPersonal = config.saveGoogleAccount({ id: 'g-personal', email: 'me@personal.example', label: 'Personal', tokens: { refresh_token: 'x' } });
+  const acctCollective = config.saveGoogleAccount({ id: 'g-collective', email: 'me@collective.example', label: 'Collective', tokens: { refresh_token: 'y' } });
+  const acctIv = config.saveGoogleAccount({ id: 'g-iv', email: 'me@iv.example', label: 'IV', tokens: { refresh_token: 'z' } });
+  assert(config.googleAccountsForContext(personalCtxId).length === 3, 'a context with no scope set sees every connected account');
+  config.setContextGoogleAccounts(personalCtxId, [acctPersonal.id]);
+  const scopedPersonal = config.googleAccountsForContext(personalCtxId);
+  assert(scopedPersonal.length === 1 && scopedPersonal[0].id === acctPersonal.id, 'scoping a context to one account resolves to just that account');
+  assert(config.googleAccountsForContext(collectiveCtxId).length === 3, 'scoping one context does not affect another');
+  config.setContextGoogleAccounts(personalCtxId, []);
+  assert(config.googleAccountsForContext(personalCtxId).length === 0, 'a context can be explicitly scoped to no Google accounts at all');
+  config.setContextGoogleAccounts(personalCtxId, null);
+  assert(config.contextSettings(personalCtxId).context.googleAccountIds === null && config.googleAccountsForContext(personalCtxId).length === 3, 'passing null resets a context to the default: every connected account, including ones added later');
+  config.setContextGoogleAccounts(personalCtxId, ['not-a-real-account-id']);
+  assert(config.googleAccountsForContext(personalCtxId).length === 0, 'an id that matches no connected account resolves to an explicit empty scope, not "all"');
+  config.setContextGoogleAccounts(personalCtxId, [acctCollective.id]);
+  const removed = config.listGoogleAccounts().filter(a => a.id !== acctCollective.id);
+  config.getStore().set('googleAccounts', removed.map(a => ({ ...a, tokens: 'plain:x' })));
+  assert(config.googleAccountsForContext(personalCtxId).length === 2, 'a scope naming only an account that was later disconnected falls back to all remaining accounts');
+
   ws.close();
   server.close();
   fs.rmSync(tmp, { recursive: true, force: true });

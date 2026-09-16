@@ -147,6 +147,8 @@ If you used an earlier version that wrote `master_dossier.md` and `sessions/` st
 
 A context is an area of life or work with its own notes: its own Master Dossier, sessions, people and projects. Each context is a folder, either a whole Obsidian vault or a folder inside one, so you can keep four areas as four folders in one iCloud vault, or point each at a separate vault. Add and name them in **Settings > Contexts**, and pick the one you want in the top bar before a session. Each context gets its own `Madrone/` folder as described above.
 
+**Google accounts per context.** If you've connected more than one Google account, each context in Settings shows a checkbox row for them. Leave every box checked (the default) and a context sees all your connected accounts, including any you connect later. Check just one or two and an interview in that context only pulls from those, so a work-only context never sees personal email and vice versa. Uncheck everything to give a context no Google integration at all. Screenpipe stays outside this: it's a single local database per Mac, so there's nothing to choose between.
+
 ## The inbox: captures from your phone
 
 Throughout the day you may record voice memos or jot quick notes on your phone. Point the app at the folder where they land (**Settings > Inbox folders**; the app suggests a folder named Inbox if it finds one in your vault), and the start screen shows **Review inbox (N new)**.

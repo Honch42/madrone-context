@@ -57,7 +57,8 @@ function statusPayload() {
     contexts: settings.contexts.map(c => ({
       id: c.id, name: c.name, notesDir: c.notesDir,
       mediaDir: c.mediaDir || storage.defaultMediaDir(c.notesDir), mediaDirIsDefault: !c.mediaDir,
-      vault: storage.findVaultRoot(c.notesDir), exists: fs.existsSync(c.notesDir)
+      vault: storage.findVaultRoot(c.notesDir), exists: fs.existsSync(c.notesDir),
+      googleAccountIds: c.googleAccountIds || null
     })),
     activeContextId: settings.activeContextId,
     inboxes: settings.inboxes.map(i => ({ ...i, exists: fs.existsSync(i.dir) })),
@@ -76,6 +77,8 @@ function statusPayload() {
 // IPC
 
 ipcMain.handle('get-status', () => statusPayload());
+
+ipcMain.handle('set-context-google-accounts', (event, id, accountIds) => { config.setContextGoogleAccounts(id, accountIds); return statusPayload(); });
 
 const SECRET_FOR_VENDOR = { gemini: 'geminiApiKey', anthropic: 'anthropicApiKey', openai: 'openaiApiKey' };
 const VENDOR_FOR_SECRET = Object.fromEntries(Object.entries(SECRET_FOR_VENDOR).map(([v, n]) => [n, v]));
