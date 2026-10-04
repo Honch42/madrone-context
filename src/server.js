@@ -840,7 +840,8 @@ function startServer(desiredPort = (process.env.PORT ? parseInt(process.env.PORT
 
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(desiredPort, '127.0.0.1', () => {
+    const host = process.env.MADRONE_HOST || (process.env.NODE_ENV === 'test' ? '127.0.0.1' : '0.0.0.0');
+    server.listen(desiredPort, host, () => {
       const port = server.address().port;
       log(`listening on http://127.0.0.1:${port}`);
       resolve({ port, server });
