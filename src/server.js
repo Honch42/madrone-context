@@ -16,11 +16,17 @@ const storage = require('./storage');
 const prompts = require('./prompts');
 const providers = require('./providers');
 const mcp = require('./mcp');
-const screenpipe = require('./screenpipe');
+const openrecall = require('./openrecall');
 const googleCtx = require('./google');
 const inbox = require('./inbox');
+const deckBuilder = require('./deck_builder');
+const mobileIngest = require('./mobile_ingest');
+const { getLexicon } = require('./lexicon');
+const { evaluateAssumptions } = require('./assumption_engine');
+const { detectUncertainties, surfaceUncertaintiesToDeskQueue } = require('./uncertainty_detector');
 
 const log = (...args) => console.log('[madrone]', ...args);
+
 const sessions = new Map();
 
 // ---------------------------------------------------------------------------
@@ -115,7 +121,210 @@ class Session {
 
 function createApp() {
   const app = express();
+  app.use(express.json({ limit: '25mb' }));
+  app.use(express.raw({ type: ['audio/*', 'video/*', 'application/octet-stream'], limit: '100mb' }));
   app.use('/static', express.static(path.join(__dirname, '..', 'frontend')));
+  app.use('/mobile', express.static(path.join(__dirname, '..', 'frontend', 'mobile')));
+
+  // Surfaces: every UI is a thin client over the same API. `/hub` is the desk
+  // review surface and `/capture` the quick-capture surface. Each serves its own
+  // bundle when present and otherwise falls back to the existing frontend, so the
+  // routes stay stable while the bundles converge.
+  const frontendDir = path.join(__dirname, '..', 'frontend');
+  const mountSurface = (route, dirName, fallback) => {
+    const dir = path.join(frontendDir, dirName);
+    app.use(route, express.static(dir));
+    app.get(route, (req, res) => {
+      const index = path.join(dir, 'index.html');
+      if (fs.existsSync(index)) return res.sendFile(index);
+      res.redirect(fallback);
+    });
+  };
+  mountSurface('/hub', 'hub', '/static/index.html');
+  mountSurface('/capture', 'capture', '/mobile/');
+
+  // Resolves the workspace a request targets: an explicit context_id (query or
+  // body) wins, otherwise the active context.
+  const workspaceFor = req => {
+    const contextId = (req.query && req.query.context_id) || (req.body && req.body.context_id) || undefined;
+    const ctxSettings = config.contextSettings(contextId);
+    return ctxSettings.workspaceDir || config.getSettings().workspaceDir || storage.defaultWorkspace();
+  };
+
+  // Context API. The /api/mobile/* routes are aliases kept for existing clients;
+  // new surfaces should use the unprefixed routes.
+  const handleDeck = (req, res) => {
+    try {
+      const contextId = req.query.context_id || undefined;
+      const surface = String(req.query.surface || 'mobile').toLowerCase();
+      const domain = req.query.domain || req.query.topic || null;
+      if (domain && !/^[a-z0-9-]+$/.test(domain)) {
+        return res.status(400).json({ ok: false, error: `Invalid domain parameter format: '${domain}'`, code: 'INVALID_DOMAIN_PARAMETER' });
+      }
+      const ctxSettings = config.contextSettings(contextId);
+      const deck = deckBuilder.buildDeck(ctxSettings, { domain });
+      res.json({
+        ok: true,
+        surface,
+        domain,
+        context_id: (ctxSettings.context && ctxSettings.context.id) || null,
+        deck
+      });
+    } catch (e) {
+      if (e?.code === 'WORK_HOST_IDENTITY_LOCKED' || e?.code === 'VAULT_ALLOWLIST_VIOLATION') {
+        return res.status(403).json({ ok: false, error: e.message, code: e.code });
+      }
+      if (e?.code === 'INVALID_DOMAIN_PARAMETER') {
+        return res.status(400).json({ ok: false, error: e.message, code: e.code });
+      }
+      if (e?.code === 'UNKNOWN_DOMAIN') {
+        return res.status(404).json({ ok: false, error: e.message, code: e.code });
+      }
+      log('handleDeck internal error:', e?.stack || e);
+      res.status(500).json({ ok: false, error: 'Internal server error', code: 'INTERNAL_ERROR' });
+    }
+  };
+  app.get('/api/deck', handleDeck);
+  app.get('/api/mobile/deck', handleDeck);
+
+  app.post('/api/mobile/dismiss', (req, res) => {
+    try {
+      const { card_id, reason } = req.body || {};
+      const settings = config.getSettings();
+      const workspace = settings.workspaceDir || storage.defaultWorkspace();
+      const result = mobileIngest.logDismissedFeedback(workspace, card_id, reason);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  app.post('/api/mobile/turn', async (req, res) => {
+    try {
+      const sessionId = req.headers['x-session-id'] || req.query.session_id || 'mobile-session';
+      const cardId = req.headers['x-card-id'] || req.query.card_id || 'unknown';
+      const turnIndex = parseInt(req.headers['x-turn-index'] || req.query.turn_index || '0', 10);
+      const isFreeform = (req.headers['x-is-freeform'] || req.query.is_freeform) === 'true';
+      const durationSeconds = parseFloat(req.headers['x-duration'] || req.query.duration || '0');
+      const cardPrompt = decodeURIComponent(req.headers['x-card-prompt'] || req.query.card_prompt || '');
+      const cardSourceFile = decodeURIComponent(req.headers['x-card-source'] || req.query.card_source || '');
+      const mimeType = req.headers['content-type'] || 'audio/mp4';
+      const turnId = req.headers['x-turn-id'] || req.query.turn_id || null;
+
+      // Idempotency: a replayed turn_id (mobile retry after a dropped response)
+      // returns the cached result without re-archiving audio or spending another
+      // provider call. Checked before provider init so replays succeed even when
+      // the provider is currently unavailable.
+      if (turnId) {
+        const cached = mobileIngest.getCachedTurn(sessionId, turnId);
+        if (cached) return res.json({ ...cached, replayed: true });
+      }
+
+      let audioBuffer = null;
+      if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+        audioBuffer = req.body;
+      } else if (req.body && req.body.audio_base64) {
+        audioBuffer = Buffer.from(req.body.audio_base64, 'base64');
+      } else {
+        return res.status(400).json({ ok: false, error: 'No audio payload provided' });
+      }
+
+      const settings = config.getSettings();
+      const keys = config.getKeys();
+      let provider = null;
+      try {
+        const modelId = settings.lastModel || 'gemini-flash-latest';
+        provider = providers.createProvider({
+          modelId, keys, log, systemPrompt: 'You are Madrone Context Processor.'
+        });
+      } catch (err) {
+        log('Provider initialization failed:', err.message);
+        return res.status(503).json({ ok: false, error: `AI Provider unavailable: ${err.message}`, code: 'PROVIDER_UNAVAILABLE' });
+      }
+      if (!provider) {
+        return res.status(503).json({ ok: false, error: 'AI Provider uninitialized (missing API key)', code: 'PROVIDER_UNAVAILABLE' });
+      }
+
+      const result = await mobileIngest.processTurn({
+        sessionId,
+        cardId,
+        turnIndex,
+        turnId,
+        audioBuffer,
+        mimeType,
+        durationSeconds,
+        isFreeform,
+        cardPrompt,
+        cardSourceFile,
+        provider,
+        ctxSettings: settings,
+        waitForSynthesis: false
+      });
+
+      res.json(result);
+    } catch (e) {
+      log('mobile turn error:', e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  app.post('/api/mobile/conclude', async (req, res) => {
+    try {
+      const { session_id, turns } = req.body || {};
+      const settings = config.getSettings();
+      const keys = config.getKeys();
+      let provider = null;
+      try {
+        const modelId = settings.lastModel || 'gemini-flash-latest';
+        provider = providers.createProvider({
+          modelId, keys, log, systemPrompt: 'You are Madrone Context Processor.'
+        });
+      } catch (err) {
+        log('Provider initialization deferred in conclude:', err.message);
+      }
+
+      const result = await mobileIngest.concludeDriveSession({
+        sessionId: session_id,
+        turns: turns || [],
+        ctxSettings: settings,
+        provider
+      });
+
+      res.json(result);
+    } catch (e) {
+      log('mobile conclude error:', e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  const handleStaged = (req, res) => {
+    try {
+      const items = mobileIngest.listStagedItems(workspaceFor(req));
+      res.json({ ok: true, items });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  };
+  app.get('/api/staged', handleStaged);
+  app.get('/api/mobile/staged', handleStaged);
+
+  const handleCommitStaged = (req, res) => {
+    try {
+      const { item_id, approved_dossier_updates, force } = req.body || {};
+      if (!item_id) return res.status(400).json({ ok: false, error: 'item_id is required' });
+      const updates = Array.isArray(approved_dossier_updates) ? approved_dossier_updates : [];
+      const result = mobileIngest.commitStagedItem(workspaceFor(req), item_id, updates, { force: !!force });
+      if (!result.ok) {
+        const status = result.code === 'STALE_BASE' ? 409 : result.code === 'NOT_FOUND' ? 404 : 400;
+        return res.status(status).json(result);
+      }
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  };
+  app.post('/api/commit_staged', handleCommitStaged);
+  app.post('/api/mobile/commit_staged', handleCommitStaged);
 
   app.get('/api/models', (req, res) => {
     const settings = config.getSettings();
@@ -123,9 +332,11 @@ function createApp() {
       models: providers.availableModels(config.getKeys()),
       personas: Object.entries(prompts.PERSONAS).map(([id, p]) => ({ id, label: p.label })),
       lastModel: settings.lastModel,
+      distillerModel: settings.distillerModel,
       lastPersona: settings.lastPersona
     });
   });
+
 
   app.get('/api/inbox', (req, res) => {
     const settings = config.getSettings();
@@ -149,7 +360,7 @@ function createApp() {
       googleAccounts: config.listGoogleAccounts().length,
       googleConfigured: googleCtx.hasClientConfig(),
       suggestGoogle: googleCtx.hasClientConfig() && config.listGoogleAccounts().length === 0 && !config.getStore().get('googleSuggestionDismissed'),
-      screenpipe: !!screenpipe.findDatabase(settings.screenpipeDbPath),
+      openrecall: !!openrecall.findDatabase(settings.openrecallDbPath),
       fileTools: mcp.isConnected()
     });
   });
@@ -162,8 +373,8 @@ async function gatherRearwardContext(ctxSettings) {
   let sinceIso = null;
   try { sinceIso = JSON.parse(fs.readFileSync(storage.layoutPaths(settings).syncStatePath, 'utf-8')).last_sync || null; } catch (e) { /* first run */ }
   const [g, sp] = await Promise.all([
-    googleCtx.fetchRearwardContext({ sinceIso, accounts: settings.googleAccounts }),
-    screenpipe.getScreenpipeContext(settings.screenpipeDbPath)
+    googleCtx.fetchRearwardContext({ sinceIso, accounts: ctxSettings.googleAccounts }),
+    openrecall.getOpenRecallContext(settings.openrecallDbPath)
   ]);
   const notices = [...g.notices];
   if (sp.notice) notices.push(sp.notice);
@@ -172,7 +383,7 @@ async function gatherRearwardContext(ctxSettings) {
 
 async function gatherForwardContext(ctxSettings) {
   const settings = ctxSettings || config.getSettings();
-  return googleCtx.fetchForwardContext({ accounts: settings.googleAccounts });
+  return googleCtx.fetchForwardContext({ accounts: ctxSettings.googleAccounts });
 }
 
 // ---------------------------------------------------------------------------
@@ -196,7 +407,7 @@ function attachOrchestrator(ws) {
   async function handleInit(data) {
     const settings = config.getSettings();
     const keys = config.getKeys();
-    const modelId = data.model || settings.lastModel || 'gemini-3.6-flash';
+    const modelId = data.model || settings.lastModel || 'gemini-flash-latest';
     const persona = prompts.PERSONAS[data.persona] ? data.persona : 'socratic';
     config.setSetting('lastModel', modelId);
     config.setSetting('lastPersona', persona);
@@ -250,7 +461,8 @@ function attachOrchestrator(ws) {
             n++;
             status(`Transcribing voice memo ${n} of ${audioItems.length}…`);
             const { buffer, mime } = await inbox.readAudio(it);
-            it.text = await session.provider.transcribe(buffer, mime);
+            const tRes = await session.provider.transcribe(buffer, mime);
+            it.text = (typeof tRes === 'object' && tRes !== null) ? (tRes.transcript || '') : (tRes || '');
           } else {
             it.text = inbox.readText(it);
           }
@@ -267,11 +479,21 @@ function attachOrchestrator(ws) {
     }
 
     status(mode === 'inbox' ? 'Reading the first item…' : 'Thinking of a first question…');
+    let activeCard = null;
+    if (mode !== 'inbox' && !session.deepDive) {
+      try {
+        const deck = deckBuilder.buildDeck(session.ctxSettings || settings);
+        activeCard = (deck && deck.find(c => !c.is_freeform && c.kind !== 'warmup')) || (deck && deck[0]) || null;
+        session.activeCard = activeCard;
+      } catch (e) {
+        log('Failed to build deck for opening prompt:', e.message);
+      }
+    }
     const opening = await session.provider.respond(mode === 'inbox'
       ? prompts.inboxOpeningPrompt()
-      : prompts.openingPrompt({ deepDive: session.deepDive, context: session.deepDiveContext, hasDossier: !!dossier }));
+      : prompts.openingPrompt({ deepDive: session.deepDive, context: session.deepDiveContext, hasDossier: !!dossier, card: activeCard }));
     const parsed = providers.extractJson(opening);
-    const question = (parsed && parsed.question) || opening || "What's on your mind today?";
+    const question = (parsed && parsed.question) || (activeCard && activeCard.question) || opening || "What's on your mind today?";
     session.lastQuestion = question;
     session.addTranscript('ai', question);
     send({ type: 'question', text: question, transcript: '' });
@@ -287,8 +509,12 @@ function attachOrchestrator(ws) {
     if (final) {
       // The user concluded mid-answer: transcribe what they said so it lands in the note.
       try {
-        const text = await session.provider.transcribe(buffer, mime);
-        if (text) session.addTranscript('user', text, at);
+        const tRes = await session.provider.transcribe(buffer, mime);
+        let text = (typeof tRes === 'object' && tRes !== null) ? (tRes.transcript || '') : (tRes || '');
+        if (text) {
+          text = getLexicon().postCorrect(text).text;
+          session.addTranscript('user', text, at);
+        }
       } catch (e) {
         notice(`The last thing you said could not be transcribed: ${e.message}`, 'error');
       }
@@ -300,7 +526,8 @@ function attachOrchestrator(ws) {
     const pending = session.pendingContext || [];
     session.pendingContext = [];
     const note = (session.windDown ? prompts.WIND_DOWN_NOTE : '') + prompts.vaultContextNote(pending);
-    const { parsed, raw, transcript } = await session.provider.respondToAudio(buffer, mime, note);
+    const { parsed, raw, transcript: rawTranscript } = await session.provider.respondToAudio(buffer, mime, note);
+    const transcript = rawTranscript ? getLexicon().postCorrect(rawTranscript).text : rawTranscript;
     if (transcript) {
       session.addTranscript('user', transcript, at);
       session.pendingContext = session.vaultContextFor(transcript);
@@ -310,7 +537,7 @@ function attachOrchestrator(ws) {
     if (parsed && parsed.tool === 'fetch_rearward_context') {
       status('Pulling up your recent context…');
       const ctx = await gatherRearwardContext(session.ctxSettings);
-      ctx.notices.forEach(n => notice(n, 'info', n.startsWith('No Google account') ? 'connect_google' : (n.startsWith('Screenpipe') ? 'screenpipe' : null)));
+      ctx.notices.forEach(n => notice(n, 'info', n.startsWith('No Google account') ? 'connect_google' : (n.startsWith('OpenRecall') ? 'openrecall' : null)));
       const follow = await session.provider.respond(prompts.contextFollowupPrompt('rearward', ctx.text || '(No context sources are connected.)') + note);
       const fp = providers.extractJson(follow);
       question = (fp && fp.question) || follow;
@@ -480,14 +707,52 @@ function attachOrchestrator(ws) {
     status('Updating your Master Dossier…');
     try {
       const existing = storage.readDossier(session.paths);
+      // Create backup before calling provider or writing
+      storage.backupDossier(session.paths, session.id);
+
       const updated = await session.provider.oneShot(prompts.dossierUpdatePrompt(existing, session.noteInput()));
       if (!updated || updated.trim().length < 40) throw new Error('the model returned an empty dossier');
-      storage.backupDossier(session.paths, session.id);
-      storage.writeDossier(session.paths, updated.trim() + '\n');
+      
+      let cleanDossier = updated.trim();
+      // Strip markdown code fences if wrapped
+      cleanDossier = cleanDossier.replace(/^```(?:markdown)?\s*\n([\s\S]*?)\n```\s*$/i, '$1').trim();
+
+      // Validate that at least one canonical section heading exists
+      if (!/^##\s+/m.test(cleanDossier)) {
+        throw new Error('dossier response is missing required markdown headings');
+      }
+
+      // Sanity check: Ensure update didn't catastrophically truncate existing context
+      if (existing && existing.length > 500 && cleanDossier.length < 0.3 * existing.length) {
+        throw new Error(`updated dossier is suspiciously short (${cleanDossier.length} vs ${existing.length} chars)`);
+      }
+
+      storage.writeDossier(session.paths, cleanDossier + '\n');
       dossierUpdated = true;
     } catch (e) {
       notice(`The session note was saved, but the Master Dossier could not be updated (${e.message}).`, 'error');
     }
+    // Surface unverified assumptions and novel/uncertain tokens to desk clarification queue
+    try {
+      const userText = session.transcript.filter(t => t.role === 'user').map(t => t.text).join(' ');
+      const sessionAssumptions = evaluateAssumptions(userText);
+      const knownEntities = new Set();
+      if (session.known) {
+        for (const kind of ['people', 'projects', 'topics']) {
+          (session.known[kind] || []).forEach(e => knownEntities.add(String(e).toLowerCase().trim()));
+        }
+      }
+      const uncertainties = detectUncertainties({
+        transcript: userText,
+        assumptions: sessionAssumptions,
+        knownEntities
+      });
+      const workspace = session.paths.workspace || session.paths.root;
+      surfaceUncertaintiesToDeskQueue(workspace, session.id, uncertainties);
+    } catch (uncErr) {
+      log('Uncertainty detection warning:', uncErr.message);
+    }
+
     try { fs.writeFileSync(session.paths.syncStatePath, JSON.stringify({ last_sync: new Date().toISOString() })); } catch (e) { /* ignore */ }
 
     const inVault = !!storage.findVaultRoot(session.paths.workspace);
@@ -554,7 +819,7 @@ function attachArchive(ws, req) {
 
 // ---------------------------------------------------------------------------
 
-function startServer() {
+function startServer(desiredPort = (process.env.PORT ? parseInt(process.env.PORT, 10) : 0)) {
   const app = createApp();
   const server = http.createServer(app);
   const wssOrchestrator = new WebSocketServer({ noServer: true });
@@ -575,7 +840,7 @@ function startServer() {
 
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(desiredPort, '127.0.0.1', () => {
       const port = server.address().port;
       log(`listening on http://127.0.0.1:${port}`);
       resolve({ port, server });
@@ -586,5 +851,6 @@ function startServer() {
 module.exports = { startServer, createApp, Session, sessions };
 
 if (require.main === module) {
-  startServer().then(({ port }) => console.log(`Open http://127.0.0.1:${port}/static/index.html`));
+  const defaultPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 3456;
+  startServer(defaultPort).then(({ port }) => console.log(`Open http://127.0.0.1:${port}/static/index.html (Mobile: http://127.0.0.1:${port}/mobile/)`));
 }

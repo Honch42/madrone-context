@@ -149,7 +149,7 @@ async function fetchRearwardContext({ sinceIso, perAccountTimeoutMs = 8000, acco
   if (accounts.length === 0) {
     return { text: '', notices: [accountsIn ? 'This context has no Google account assigned, so there is no email or document context yet.' : 'No Google account is connected, so there is no email or document context yet.'] };
   }
-  const since = sinceIso ? new Date(sinceIso) : new Date(Date.now() - 86400000);
+  const since = sinceIso ? new Date(sinceIso) : new Date(Date.now() - 7 * 86400000);
   const unix = Math.floor(since.getTime() / 1000);
 
   for (const account of accounts) {
@@ -160,8 +160,8 @@ async function fetchRearwardContext({ sinceIso, perAccountTimeoutMs = 8000, acco
         const gmail = google.gmail({ version: 'v1', auth });
         const drive = google.drive({ version: 'v3', auth });
         const [inbox, sent, files] = await Promise.all([
-          gmail.users.messages.list({ userId: 'me', q: `in:inbox after:${unix}`, maxResults: 10 }),
-          gmail.users.messages.list({ userId: 'me', q: `in:sent after:${unix}`, maxResults: 5 }),
+          gmail.users.messages.list({ userId: 'me', q: `in:inbox after:${unix}` }),
+          gmail.users.messages.list({ userId: 'me', q: `in:sent after:${unix}` }),
           drive.files.list({ q: `modifiedTime > '${since.toISOString()}'`, pageSize: 5, fields: 'files(name, modifiedTime)', orderBy: 'modifiedTime desc' })
         ]);
         const inboxIds = (inbox.data.messages || []).map(m => m.id);
@@ -204,9 +204,9 @@ async function fetchForwardContext({ perAccountTimeoutMs = 8000, accounts: accou
         const gmail = google.gmail({ version: 'v1', auth });
         const [events, drafts, starred, deadlines] = await Promise.all([
           calendar.events.list({ calendarId: 'primary', timeMin: now.toISOString(), timeMax: in7Days.toISOString(), maxResults: 12, singleEvents: true, orderBy: 'startTime' }),
-          gmail.users.messages.list({ userId: 'me', q: 'is:draft', maxResults: 5 }),
-          gmail.users.messages.list({ userId: 'me', q: 'is:starred', maxResults: 5 }),
-          gmail.users.messages.list({ userId: 'me', q: 'in:inbox (deadline OR due OR "action required" OR invoice) newer_than:7d', maxResults: 5 })
+          gmail.users.messages.list({ userId: 'me', q: 'is:draft' }),
+          gmail.users.messages.list({ userId: 'me', q: 'is:starred' }),
+          gmail.users.messages.list({ userId: 'me', q: 'in:inbox (deadline OR due OR "action required" OR invoice) newer_than:7d' })
         ]);
         lines.push(`[${account.label}] Upcoming calendar (7 days):`);
         const items = events.data.items || [];

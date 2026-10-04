@@ -27,8 +27,14 @@
         <button id="settings-btn" class="btn btn-quiet" type="button">Settings</button>
     </div>
 
+
     <!-- Interview HUD -->
     <main class="container" id="hud">
+        <div id="hypothesis-display" class="panel suggest" hidden>
+            <h3 class="purple">Hypothesis Review</h3>
+            <p id="hypothesis-text" class="panel-text"></p>
+            <p id="hypothesis-source" class="muted small"></p>
+        </div>
         <div id="transcript-display" class="transcript-text"></div>
         <div id="question-display" class="question-text">Ready when you are.</div>
 
@@ -51,7 +57,7 @@
     <section id="start-screen" class="overlay">
         <img src="assets/logo.png" alt="" class="logo-large">
         <h1>Madrone Context</h1>
-        <p class="muted">A short spoken interview. Speak freely; pause for a moment or press <span class="key">Space</span> when you've finished a thought.</p>
+        <p class="muted">A short spoken interview. Speak freely; press <span class="key">Space</span> when you've finished your thought.</p>
         <p id="start-hint" class="muted small"></p>
 
         <div id="key-panel" class="panel" hidden>
@@ -77,11 +83,19 @@
             <span id="camera-label">Also record video, so Gemini can compare what you say with how you look and sound. Never shown on screen.</span>
         </label>
 
+        <div id="staged-review-banner" class="panel suggest" style="margin-bottom: 1rem; border-color: #3b82f6; background: rgba(59, 130, 246, 0.1);" hidden>
+            <h3 style="color: #60a5fa; margin-bottom: 0.25rem;">Captured Context Awaiting Review</h3>
+            <p id="staged-review-text" class="panel-text small" style="margin-bottom: 0.5rem;"></p>
+            <button id="btn-review-staged" class="btn btn-primary small" type="button">Review & Commit Diffs</button>
+        </div>
+
         <div class="button-row">
             <button id="btn-start" class="btn btn-primary btn-large" type="button">Begin interview</button>
+            <button id="btn-dump" class="btn btn-quiet btn-large" type="button">Quick Brain Dump</button>
             <button id="btn-inbox" class="btn btn-quiet btn-large" type="button">Review inbox</button>
         </div>
         <p id="inbox-hint" class="muted small"></p>
+
     </section>
 
     <!-- Error screen -->

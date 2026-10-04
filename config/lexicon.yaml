@@ -1,0 +1,68 @@
+version: 3
+terms:
+  - canonical: Foundayo
+    kind: medication
+    sensitivity: health
+    aliases:
+      - "found ayo"
+      - "fondayo"
+      - "foundaio"
+      - "found a yo"
+      - "endeo"
+    boost: 3
+
+  - canonical: Pax
+    kind: person
+    aliases:
+      - "packs"
+      - "pacs"
+      - "pat"
+    boost: 2
+
+  - canonical: barndominium
+    kind: asset_type
+    aliases:
+      - "barn dominium"
+      - "barn-dominium"
+      - "bar condominium"
+      - "barnamiento"
+      - "barndominio"
+    boost: 2
+
+  - canonical: Ventana
+    kind: place
+    aliases:
+      - "ventanna"
+      - "ben tana"
+    boost: 2
+
+  - canonical: Knights Ferry
+    kind: place
+    aliases:
+      - "nights ferry"
+      - "knight's ferry"
+      - "night ferry"
+    boost: 2
+
+  - canonical: Moab
+    kind: place
+    aliases:
+      - "mo ab"
+      - "moe ab"
+    boost: 2
+
+  - canonical: SPG
+    kind: org
+    aliases:
+      - "s p g"
+      - "s.p.g."
+      - "espy gee"
+    boost: 3
+
+  - canonical: Washoe
+    kind: place
+    aliases:
+      - "washo"
+      - "wash oh"
+      - "wa show"
+    boost: 2

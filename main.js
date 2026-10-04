@@ -13,7 +13,7 @@ const onepassword = require('./src/onepassword');
 const storage = require('./src/storage');
 const inbox = require('./src/inbox');
 const googleCtx = require('./src/google');
-const screenpipe = require('./src/screenpipe');
+const openrecall = require('./src/openrecall');
 const { startServer } = require('./src/server');
 
 let mainWindow = null;
@@ -65,7 +65,7 @@ function statusPayload() {
     inboxMoveProcessed: settings.inboxMoveProcessed,
     inboxNew: (() => { try { return inbox.scan(settings.inboxes, config.getInboxProcessed()).length; } catch (e) { return 0; } })(),
     inboxSuggestion: settings.inboxes.length ? null : suggestInboxFolder(settings),
-    screenpipe: { configured: settings.screenpipeDbPath, found: screenpipe.findDatabase(settings.screenpipeDbPath) },
+    openrecall: { configured: settings.openrecallDbPath, found: openrecall.findDatabase(settings.openrecallDbPath) },
     google: { configured: !!googleClient, source: googleClient ? googleClient.source : null, accounts: config.listGoogleAccounts() },
     media: mediaStatus(),
     silenceSeconds: settings.silenceSeconds,
@@ -246,17 +246,17 @@ ipcMain.handle('show-path', (event, target) => {
   if (target && fs.existsSync(target)) shell.showItemInFolder(target);
 });
 
-ipcMain.handle('select-screenpipe', async () => {
+ipcMain.handle('select-openrecall', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Choose the Screenpipe database (db.sqlite)',
+    title: 'Choose the OpenRecall database (db.sqlite)',
     properties: ['openFile', 'showHiddenFiles'],
     filters: [{ name: 'SQLite databases', extensions: ['sqlite', 'db'] }]
   });
-  if (!result.canceled && result.filePaths.length) config.setSetting('screenpipeDbPath', result.filePaths[0]);
+  if (!result.canceled && result.filePaths.length) config.setSetting('openrecallDbPath', result.filePaths[0]);
   return statusPayload();
 });
 
-ipcMain.handle('clear-screenpipe', () => { config.setSetting('screenpipeDbPath', null); return statusPayload(); });
+ipcMain.handle('clear-openrecall', () => { config.setSetting('openrecallDbPath', null); return statusPayload(); });
 
 ipcMain.handle('select-google-client', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -356,6 +356,14 @@ app.whenReady().then(async () => {
   }
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+
+  // Fire-and-forget background OpenRecall distillation on app launch (throttled & high-water marked)
+  try {
+    const distiller = require('./src/openrecall_distiller');
+    distiller.distillIfNeeded(config.getKeys(), config.getSettings()).catch(e => console.error('[distiller]', e.message));
+  } catch (e) {
+    console.error('[distiller] could not initialize', e.message);
+  }
 });
 
 // This is a single-window app: closing the window quits, which also turns the camera off.

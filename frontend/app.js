@@ -74,7 +74,7 @@ function showOverlay(id) {
 
 const NOTICE_ACTIONS = {
   connect_google: { label: 'Connect Google', focus: 'google' },
-  screenpipe: { label: 'Set up Screenpipe', focus: 'screenpipe' }
+  openrecall: { label: 'Set up OpenRecall', focus: 'openrecall' }
 };
 
 function notify(text, level = 'info', ms = 9000, action = null) {
@@ -172,6 +172,7 @@ async function loadCatalog() {
     $('start-hint').innerText = `Notes are saved to ${status.workspaceDir}.`;
     await refreshMediaStatus();
     updateModelReadiness();
+    checkStagedItems();
   } catch (e) {
     $('start-hint').innerText = 'Could not reach the local server. Try restarting the app.';
     $('btn-start').disabled = true;
@@ -434,15 +435,11 @@ function setupVisualizer() {
     if (ui.state === 'listening' && !ui.frozen) {
       statusDot.style.transform = `scale(${Math.min(2.5, 1 + level / 50)})`;
       statusDot.style.boxShadow = speaking ? `0 0 10px rgba(46, 160, 67, ${Math.min(1, level / 100)})` : 'none';
-      statusText.innerText = speaking ? 'LISTENING' : (ui.turnSpeechDetected ? 'LISTENING (pause to send)' : 'LISTENING');
+      statusText.innerText = speaking ? 'LISTENING (speaking)' : 'LISTENING (Press Space when done)';
     }
     if (speaking && (ui.state === 'listening' || ui.state === 'thinking') && !ui.frozen) {
       ui.turnSpeechDetected = true;
       ui.lastSpeechAt = performance.now();
-    }
-    if (ui.state === 'listening' && !ui.frozen && ui.turnSpeechDetected) {
-      const now = performance.now();
-      if (now - ui.lastSpeechAt > ui.silenceMs && now - ui.turnStartedAt > 1500) submitTurn('silence');
     }
   };
   frame();
@@ -757,8 +754,56 @@ window.addEventListener('keydown', e => {
 
 $('btn-start').addEventListener('click', () => beginSession({ mode: 'interview' }));
 $('btn-inbox').addEventListener('click', () => beginSession({ mode: 'inbox' }));
+if ($('btn-dump')) {
+  $('btn-dump').addEventListener('click', () => {
+    beginSession({ mode: 'interview', deep_dive: true, context: 'UNPROMPTED BRAIN DUMP: The user wants to freely dump thoughts without being guided by a structured question. Listen carefully, extract decisions and insights, and do not interrupt.' });
+  });
+}
+if ($('btn-review-staged')) {
+  $('btn-review-staged').addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/mobile/staged');
+      const data = await res.json();
+      if (data.ok && data.items && data.items.length > 0) {
+        for (const item of data.items) {
+          const confirmMsg = `Review Staged Item: "${item.title || item.id}"\n\nProposed Dossier Updates:\n${(item.dossier_updates || []).map(u => '• ' + u).join('\n')}\n\nApprove and commit to Master Dossier?`;
+          if (confirm(confirmMsg)) {
+            await fetch('/api/mobile/commit_staged', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ item_id: item.id, approved_dossier_updates: item.dossier_updates || [] })
+            });
+          }
+        }
+        $('staged-review-banner').hidden = true;
+        notify('Staged items processed and committed.', 'info');
+      }
+    } catch (e) {
+      notify('Failed to process staged items: ' + e.message, 'error');
+    }
+  });
+}
+
+async function checkStagedItems() {
+  try {
+    const res = await fetch('/api/mobile/staged');
+    const data = await res.json();
+    if (data.ok && data.items && data.items.length > 0) {
+      const banner = $('staged-review-banner');
+      const text = $('staged-review-text');
+      if (banner && text) {
+        banner.hidden = false;
+        text.innerText = `${data.items.length} session(s) or brain dump(s) awaiting review.`;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
 contextSelect.addEventListener('change', () => { if (window.electronAPI) window.electronAPI.setActiveContext(contextSelect.value).then(() => loadCatalog()); });
 modelSelect.addEventListener('change', updateModelReadiness);
+
 $('key-panel-save').addEventListener('click', async () => {
   const vendor = $('key-panel').dataset.vendor;
   const value = $('key-panel-input').value.trim();

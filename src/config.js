@@ -94,11 +94,11 @@ function getKeySource(name) { return getStore().get(`keySource.${name}`) || null
 function setKeySource(name, source) { if (source) getStore().set(`keySource.${name}`, source); else getStore().delete(`keySource.${name}`); }
 
 function getKeys() {
-  const anthropicKey = getSecret('anthropicApiKey');
+  const anthropicKey = getSecret('anthropicApiKey') || process.env.ANTHROPIC_API_KEY;
   return {
-    gemini: getSecret('geminiApiKey'),
+    gemini: getSecret('geminiApiKey') || process.env.GEMINI_API_KEY,
     anthropic: anthropicKey || (getStore().get('anthropicAuth') === 'profile' ? ANTHROPIC_PROFILE_AUTH : null),
-    openai: getSecret('openaiApiKey')
+    openai: getSecret('openaiApiKey') || process.env.OPENAI_API_KEY
   };
 }
 
@@ -108,7 +108,7 @@ function forgetEverything() {
   const s = getStore();
   for (const name of SECRET_NAMES) s.delete(name);
   for (const name of SECRET_NAMES) s.delete(`keySource.${name}`);
-  for (const name of ['legacyGoogleClientJson', 'googleAccounts', 'googleClientPath', 'screenpipeDbPath', 'mediaDir', 'workspaceDir',
+  for (const name of ['legacyGoogleClientJson', 'googleAccounts', 'googleClientPath', 'openrecallDbPath', 'mediaDir', 'workspaceDir',
     'hasCompletedWizard', 'silenceSeconds', 'sessionMinutesSoftLimit', 'lastModel', 'lastPersona', 'anthropicAuth',
     'googleSuggestionDismissed', 'legacyImportDone', 'contexts', 'activeContextId', 'inboxes', 'inboxProcessed', 'inboxMoveProcessed']) s.delete(name);
 }
@@ -217,7 +217,7 @@ function removeContext(id) {
 function contextSettings(id) {
   const c = getContext(id);
   const base = getSettings();
-  return { ...base, context: c, workspaceDir: c.notesDir, mediaDir: c.mediaDir || path.join(c.notesDir, 'Madrone', 'archives'), googleAccounts: googleAccountsForContext(c.id) };
+  return { ...base, context: c, workspaceDir: c.notesDir, mediaDir: c.mediaDir || path.join(c.notesDir, 'Core', 'archives'), googleAccounts: googleAccountsForContext(c.id) };
 }
 
 // ---------------------------------------------------------------------------
@@ -255,23 +255,30 @@ function markInboxProcessed(filePath, info) {
 
 function getSettings() {
   const s = getStore();
+  if (s.has && s.has('screenpipeDbPath') && !s.has('openrecallDbPath')) {
+    s.set('openrecallDbPath', s.get('screenpipeDbPath'));
+    s.delete('screenpipeDbPath');
+  }
   const active = getContext(getActiveContextId());
   const workspaceDir = active.notesDir;
   return {
     workspaceDir,
     // Where session recordings go. Defaults to <notes folder>/Madrone/archives so
     // notes and recordings travel together; can be pointed outside an Obsidian vault.
-    mediaDir: active.mediaDir || path.join(workspaceDir, 'Madrone', 'archives'),
+    mediaDir: active.mediaDir || path.join(workspaceDir, 'Core', 'archives'),
     contexts: listContexts(),
     activeContextId: active.id,
     inboxes: listInboxes(),
     inboxMoveProcessed: s.get('inboxMoveProcessed') !== false,
-    screenpipeDbPath: s.get('screenpipeDbPath') || null,
+    openrecallDbPath: s.get('openrecallDbPath') || null,
     googleClientPath: s.get('googleClientPath') || null,
     hasCompletedWizard: !!s.get('hasCompletedWizard'),
     silenceSeconds: Number(s.get('silenceSeconds') || 1.8),
     sessionMinutesSoftLimit: Number(s.get('sessionMinutesSoftLimit') || 15),
     lastModel: s.get('lastModel') || null,
+    // Post-session frontier distillation model.
+    // ROADMAP NOTE: Upgrade primary distillation to Gemini 4 Pro once released, leveraging active Google subscription.
+    distillerModel: s.get('distillerModel') || 'gemini-3.1-pro',
     lastPersona: s.get('lastPersona') || null,
     anthropicAuth: s.get('anthropicAuth') === 'profile' ? 'profile' : 'key'
   };

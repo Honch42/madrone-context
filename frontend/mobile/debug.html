@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Context Mobile Sync Diagnostic</title>
+  <style>
+    body {
+      background: #090d16;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 1.5rem;
+      margin: 0;
+    }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; color: #38bdf8; }
+    p { color: #94a3b8; font-size: 0.95rem; line-height: 1.5; }
+    .btn {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.25rem;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+      margin-right: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .btn:disabled { opacity: 0.5; }
+    .btn-success { background: #16a34a; }
+    .status-box {
+      background: #1e293b;
+      border: 1px solid #334155;
+      padding: 1rem;
+      border-radius: 8px;
+      margin-bottom: 1.5rem;
+      font-family: monospace;
+      white-space: pre-wrap;
+      max-height: 250px;
+      overflow-y: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      font-size: 0.85rem;
+    }
+    th, td {
+      border: 1px solid #334155;
+      padding: 0.6rem;
+      text-align: left;
+    }
+    th { background: #1e293b; color: #cbd5e1; }
+    tr:nth-child(even) { background: #0f172a; }
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 0.75rem;
+    }
+    .badge-queued { background: #b45309; color: #fef3c7; }
+    .badge-uploaded { background: #15803d; color: #dcfce7; }
+  </style>
+</head>
+<body>
+
+  <h1>🔍 Context Mobile Local Storage Audit</h1>
+  <p>This tool inspects the audio recordings stored in your iPad's local <code>IndexedDB</code> database.</p>
+
+  <div style="margin-bottom: 1rem;">
+    <button class="btn btn-success" id="btn-sync" onclick="forceSyncAll(false)">🚀 Upload Queued Turns</button>
+    <button class="btn" style="background: #d97706;" onclick="forceSyncAll(true)">🔄 Force Re-upload ALL Turns</button>
+    <button class="btn" style="background: #dc2626;" onclick="discardAllQueued()">🗑 Discard Stuck Queued Turns</button>
+    <button class="btn" onclick="loadTurns()">🔄 Refresh List</button>
+    <button class="btn" onclick="window.location.href='/mobile/'">📱 Return to App</button>
+  </div>
+
+  <div class="status-box" id="log-box">Loading IndexedDB records...</div>
+
+  <table id="turns-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Turn Index</th>
+        <th>Card ID / Question</th>
+        <th>Duration</th>
+        <th>Audio Size</th>
+        <th>Status</th>
+        <th>Audio Playback / Export</th>
+      </tr>
+    </thead>
+    <tbody id="turns-body">
+    </tbody>
+  </table>
+
+  <script>
+    let db = null;
+    const logBox = document.getElementById('log-box');
+    const tableBody = document.getElementById('turns-body');
+    const btnSync = document.getElementById('btn-sync');
+
+    function log(msg) {
+      logBox.textContent += msg + '\n';
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function initDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open('madrone_mobile_db', 1);
+        req.onsuccess = e => {
+          db = e.target.result;
+          resolve(db);
+        };
+        req.onerror = e => reject(e.target.error);
+      });
+    }
+
+    async function loadTurns() {
+      tableBody.innerHTML = '';
+      logBox.textContent = '';
+      log('Opening local IndexedDB (madrone_mobile_db)...');
+      try {
+        if (!db) await initDB();
+        const tx = db.transaction('turns', 'readonly');
+        const store = tx.objectStore('turns');
+        const req = store.getAll();
+
+        req.onsuccess = () => {
+          const turns = req.result || [];
+          log(`Found ${turns.length} total recorded turn(s) in this browser storage.`);
+
+          const queued = turns.filter(t => t.status === 'queued');
+          const uploaded = turns.filter(t => t.status === 'uploaded');
+          log(`Status breakdown: ${queued.length} Queued (Pending Upload), ${uploaded.length} Uploaded.`);
+
+          if (!turns.length) {
+            log('\n⚠️ If you recorded inside the "Context" Home Screen app, open that Home Screen icon and tap "Audit" at the top so it checks the Home Screen app storage.');
+            tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem; color: #f59e0b;">No recordings found in this browser container. If you used the Home Screen App, open Context on your home screen and tap "Audit"!</td></tr>';
+            return;
+          }
+
+          turns.forEach((t, i) => {
+            const tr = document.createElement('tr');
+            const sizeKB = t.blob ? Math.round(t.blob.size / 1024) + ' KB' : '0 KB';
+            const badgeClass = t.status === 'queued' ? 'badge-queued' : 'badge-uploaded';
+            let audioActionHtml = '<span style="color: #64748b;">No audio blob</span>';
+            if (t.blob && t.blob.size > 0) {
+              const url = URL.createObjectURL(t.blob);
+              audioActionHtml = `
+                <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+                  <audio controls src="${url}" style="height: 32px; width: 220px;"></audio>
+                  <a href="${url}" download="${t.session_id || 'turn'}_turn_${t.turn_index || i}.mp4" style="color: #38bdf8; font-size: 0.75rem; text-decoration: underline;">⬇️ Download MP4</a>
+                </div>
+              `;
+            }
+            tr.innerHTML = `
+              <td>${i + 1}</td>
+              <td><strong>Turn ${t.turn_index || '?'}</strong></td>
+              <td>
+                <div style="font-weight: 600; color: #38bdf8;">${t.card_id || 'unknown'}</div>
+                <div style="color: #94a3b8; font-size: 0.8rem;">${(t.card_prompt || '').slice(0, 100)}</div>
+              </td>
+              <td>${t.duration_seconds || 0}s</td>
+              <td>${sizeKB}</td>
+              <td><span class="badge ${badgeClass}">${t.status || 'unknown'}</span></td>
+              <td>${audioActionHtml}</td>
+            `;
+            tableBody.appendChild(tr);
+          });
+        };
+      } catch (e) {
+        log('Error reading IndexedDB: ' + e.message);
+      }
+    }
+
+    async function forceSyncAll(forceAll = false) {
+      btnSync.disabled = true;
+      log(forceAll ? '\n--- Force Re-uploading ALL Turns ---' : '\n--- Uploading Queued Turns ---');
+      try {
+        if (!db) await initDB();
+        const tx = db.transaction('turns', 'readonly');
+        const store = tx.objectStore('turns');
+        const req = store.getAll();
+
+        req.onsuccess = async () => {
+          const turns = req.result || [];
+          const targets = turns.filter(t => forceAll || t.status === 'queued');
+          log(`Found ${targets.length} turn(s) to transfer.`);
+
+          let successCount = 0;
+          for (let i = 0; i < targets.length; i++) {
+            const turn = targets[i];
+            log(`[${i + 1}/${targets.length}] Uploading Turn ${turn.turn_index} (${turn.card_id}, ${Math.round((turn.blob?.size || 0)/1024)} KB)...`);
+            try {
+              const res = await fetch('/api/mobile/turn', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': turn.mime_type || 'audio/mp4',
+                  'x-session-id': turn.session_id,
+                  'x-card-id': turn.card_id,
+                  'x-turn-index': String(turn.turn_index),
+                  'x-turn-id': turn.turn_id || '',
+                  'x-is-freeform': String(turn.is_freeform),
+                  'x-duration': String(turn.duration_seconds),
+                  'x-card-prompt': encodeURIComponent(turn.card_prompt || ''),
+                  'x-card-source': encodeURIComponent(turn.card_source || '')
+                },
+                body: turn.blob
+              });
+
+              if (res.ok) {
+                const writeTx = db.transaction('turns', 'readwrite');
+                turn.status = 'uploaded';
+                writeTx.objectStore('turns').put(turn);
+                successCount++;
+                log(`   ✅ Turn ${turn.turn_index} uploaded and marked complete!`);
+              } else {
+                log(`   ❌ Server error HTTP ${res.status}: ${res.statusText}`);
+              }
+            } catch (err) {
+              log(`   ❌ Network error: ${err.message}`);
+            }
+          }
+          log(`\n🎉 Force sync complete: ${successCount} turn(s) transferred.`);
+          btnSync.disabled = false;
+          loadTurns();
+        };
+      } catch (e) {
+        log('Force sync error: ' + e.message);
+        btnSync.disabled = false;
+      }
+    }
+
+    async function discardAllQueued() {
+      if (!confirm('Are you sure you want to discard all queued / stuck recordings? This will unblock your app.')) return;
+      log('\n--- Discarding Queued / Stuck Turns ---');
+      try {
+        if (!db) await initDB();
+        const tx = db.transaction('turns', 'readwrite');
+        const store = tx.objectStore('turns');
+        const req = store.getAll();
+        req.onsuccess = () => {
+          const turns = req.result || [];
+          let count = 0;
+          turns.forEach(t => {
+            if (t.status === 'queued' || t.status === 'error' || t.status === 'failed') {
+              t.status = 'discarded';
+              store.put(t);
+              count++;
+            }
+          });
+          log(`Marked ${count} turn(s) as discarded.`);
+          loadTurns();
+        };
+      } catch (e) {
+        log('Error discarding turns: ' + e.message);
+      }
+    }
+
+    loadTurns();
+  </script>
+</body>
+</html>

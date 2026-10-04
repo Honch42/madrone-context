@@ -121,12 +121,19 @@
         </div>
 
         <div id="wizard-more">
-            <p class="step-sub" style="margin: 4px 0 0">Camera, Claude and GPT models, Google accounts and Screenpipe are optional. The app will offer them when they'd help, or you can <button type="button" class="link" id="btn-more">set them up now</button>.</p>
+            <p class="step-sub" style="margin: 4px 0 0">Camera, Claude and GPT models, Google accounts and OpenRecall are optional. The app will offer them when they'd help, or you can <button type="button" class="link" id="btn-more">set them up now</button>.</p>
         </div>
 
         <!-- Optional: models -->
         <div id="optional">
         <h2>Models</h2>
+
+        <div class="step">
+            <div class="step-title">Distiller Model</div>
+            <div class="step-sub">The model used to run autonomous background tasks (like the OpenRecall Distiller).</div>
+            <div style="margin-top: 8px;"><select id="distiller-model"></select></div>
+        </div>
+
         <div class="step" id="sec-anthropic">
             <div class="row">
                 <div>
@@ -204,10 +211,10 @@
             <div class="msg" id="inbox-msg"></div>
         </div>
 
-        <div class="step" id="sec-screenpipe">
+        <div class="step" id="sec-openrecall">
             <div class="row">
                 <div>
-                    <div class="step-title">Screenpipe <span id="sp-badge" class="badge">Checking</span></div>
+                    <div class="step-title">OpenRecall <span id="sp-badge" class="badge">Checking</span></div>
                     <div class="step-sub" id="sp-sub"></div>
                 </div>
                 <div class="actions"><button id="btn-sp-clear" type="button" class="quiet" hidden>Clear</button><button id="btn-sp" type="button" class="quiet">Choose database</button></div>
@@ -223,7 +230,7 @@
             <div class="msg" id="context-msg"></div>
         </div>
 
-        <div class="step" id="sec-silence">
+        <div class="step" id="sec-silence" style="display: none;">
             <div class="row">
                 <div>
                     <div class="step-title">Turn ends after silence</div>
@@ -242,7 +249,7 @@
                 <dt>Claude and GPT</dt><dd>Receive the transcript of what you said, never the audio or video. They can read notes in your notes folder when you mention one, but cannot change anything.</dd>
                 <dt>Google accounts</dt><dd id="privacy-google">Read-only. Upcoming calendar events; subjects, senders and preview snippets of recent, starred, draft and deadline-related email; names of recently modified Drive files. Nothing is sent, edited or deleted. Used only when you ask ("what's coming up", "catch me up"), and only the accounts assigned to the active context if you've connected more than one.</dd>
                 <dt>Inbox folders</dt><dd>Read only during an inbox review, and only when you start one. Voice memos are sent to Gemini for transcription; reviewed files are moved to a Processed folder inside the inbox, never deleted.</dd>
-                <dt>Screenpipe</dt><dd>Read-only, and only when you ask. Recent window titles, screen text and heard speech from your local Screenpipe database.</dd>
+                <dt>OpenRecall</dt><dd>Read-only, and only when you ask. Recent window titles, screen text and heard speech from your local OpenRecall database.</dd>
                 <dt>1Password</dt><dd>Only when you click a 1Password button, and only after you approve 1Password's own prompt. The app sees item titles to build the list, and reads one item's secret when you choose it.</dd>
                 <dt>Your Master Dossier</dt><dd>Included in the interviewer's instructions so it can ask informed questions.</dd>
                 <dt>Your notes and recordings</dt><dd>Plain files in the folders above, protected only by your Mac's disk encryption and whatever syncs that folder. They hold personal reflections, so they are more sensitive than any key; keep the folder somewhere you trust.</dd>
@@ -454,10 +461,10 @@
                 sug.querySelector('button').onclick = async () => { status = await api.addInbox(s.inboxSuggestion); render(); };
             } else sug.hidden = true;
             $('inbox-move').checked = !!s.inboxMoveProcessed;
-            // Screenpipe
-            if (s.screenpipe.found) { badge('sp-badge', 'Detected', 'ok'); $('sp-sub').textContent = s.screenpipe.found; }
-            else { badge('sp-badge', 'Optional', ''); $('sp-sub').textContent = 'Not found. If you use Screenpipe, choose its db.sqlite file to let interviews pull in recent screen activity when you ask.'; }
-            $('btn-sp-clear').hidden = !s.screenpipe.configured;
+            // OpenRecall
+            if (s.openrecall.found) { badge('sp-badge', 'Detected', 'ok'); $('sp-sub').textContent = s.openrecall.found; }
+            else { badge('sp-badge', 'Optional', ''); $('sp-sub').textContent = 'Not found. If you use OpenRecall, choose its db.sqlite file to let interviews pull in recent screen activity when you ask.'; }
+            $('btn-sp-clear').hidden = !s.openrecall.configured;
             // Google
             const accounts = s.google.accounts || [];
             const list = $('google-accounts');
@@ -490,7 +497,34 @@
             $('footer-hint').textContent = mode === 'wizard' && !ready ? 'Allow the microphone and save a Gemini key to start.' : '';
         }
 
-        async function refresh() { status = await api.getStatus(); render(); }
+        
+        let modelSelectsPopulated = false;
+        async function loadModels() {
+            if (modelSelectsPopulated) return;
+            const res = await fetch('/api/models');
+            const data = await res.json();
+            const sel = $('distiller-model');
+            if (sel) {
+                sel.innerHTML = '';
+                for (const m of data.models) {
+                    const opt = document.createElement('option');
+                    opt.value = m.id;
+                    const isRecommended = (m.id.includes('pro') || m.id.includes('fable'));
+                    opt.textContent = (isRecommended ? '(Recommended) ' : '') + m.label + (!m.available ? ' (needs key)' : '');
+                    opt.disabled = !m.available;
+                    sel.appendChild(opt);
+                }
+                const current = data.distillerModel || data.lastModel || data.models.find(m => m.available)?.id;
+                if (current) sel.value = current;
+                sel.addEventListener('change', async () => {
+                    await api.setSetting('distillerModel', sel.value);
+                });
+                modelSelectsPopulated = true;
+            }
+        }
+
+        async function refresh() { status = await api.getStatus();
+            await loadModels(); render(); }
 
         async function detect() {
             try { detected = await api.detectKeys(); } catch (e) { detected = null; }
@@ -593,8 +627,8 @@
         $('btn-add-context').addEventListener('click', async () => { status = await api.addContext(); render(); });
         $('btn-add-inbox').addEventListener('click', async () => { status = await api.addInbox(); render(); });
         $('inbox-move').addEventListener('change', async () => { status = await api.setSetting('inboxMoveProcessed', $('inbox-move').checked); render(); });
-        $('btn-sp').addEventListener('click', async () => { status = await api.selectScreenpipe(); render(); });
-        $('btn-sp-clear').addEventListener('click', async () => { status = await api.clearScreenpipe(); render(); });
+        $('btn-sp').addEventListener('click', async () => { status = await api.selectOpenRecall(); render(); });
+        $('btn-sp-clear').addEventListener('click', async () => { status = await api.clearOpenRecall(); render(); });
         $('btn-google-client').addEventListener('click', async () => {
             const msg = $('google-msg');
             try { status = await api.selectGoogleClient(); msg.className = 'msg ok'; msg.textContent = status.google.configured ? 'Client file saved. You can connect an account now.' : ''; render(); }

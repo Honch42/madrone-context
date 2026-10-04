@@ -8,8 +8,11 @@ const os = require('os');
 const path = require('path');
 const WebSocket = require('ws');
 
+process.env.NODE_ENV = 'test';
+process.env.MADRONE_ALLOW_ENV_OVERRIDES = '1';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'madrone-smoke-'));
 process.env.MADRONE_CONFIG_DIR = path.join(tmp, 'config');
+process.env.MADRONE_EXTRA_VAULT_PATHS = os.tmpdir();
 process.env.MADRONE_ICLOUD_WAIT_MS = '1500';
 
 const config = require('../src/config');
@@ -24,9 +27,9 @@ class FakeProvider {
     this.calls.push(['respond', text]);
     if (/started a session|Master Dossier/.test(text)) return JSON.stringify({ transcript: '[Session started]', question: 'What is on your mind today?' });
     if (/session has concluded/.test(text)) return '```json\n' + JSON.stringify({
-      summary: '## Primary objective\nShip [[Madrone Context]] to friends.', insights: '- Cares about friends',
+      summary: '## Primary objective\nShip [[Core Context]] to friends.', insights: '- Cares about friends',
       people: [{ name: 'Jane Doe', note: 'A friend who will test the app' }],
-      projects: [{ name: 'Madrone Context', note: 'The interview app' }, { name: 'madrone context', note: 'duplicate spelling' }],
+      projects: [{ name: 'Core Context', note: 'The interview app' }, { name: 'core context', note: 'duplicate spelling' }],
       topics: [{ name: 'Distribution', note: 'Getting the app to friends' }],
       energy: 'high', confidence: 8
     }) + '\n```';
@@ -56,8 +59,8 @@ fs.mkdirSync(path.join(tmp, 'vault', '.obsidian'), { recursive: true });
 fs.mkdirSync(path.join(tmp, 'vault', 'sessions'), { recursive: true });
 fs.writeFileSync(path.join(tmp, 'vault', 'master_dossier.md'), '# Old dossier\n');
 fs.writeFileSync(path.join(tmp, 'vault', 'sessions', 'old_session.md'), 'old');
-fs.mkdirSync(path.join(tmp, 'vault', 'Madrone', 'People'), { recursive: true });
-fs.writeFileSync(path.join(tmp, 'vault', 'Madrone', 'People', 'Jane Doe.md'), '---\ntype: person\n---\n# Jane Doe\n\nJane runs the beta group.\n\n## Mentions\n- [[2026-01-01_0900_session|earlier]]: first mention\n');
+fs.mkdirSync(path.join(tmp, 'vault', 'Core', 'People'), { recursive: true });
+fs.writeFileSync(path.join(tmp, 'vault', 'Core', 'People', 'Jane Doe.md'), '---\ntype: person\n---\n# Jane Doe\n\nJane runs the beta group.\n\n## Mentions\n- [[2026-01-01_0900_session|earlier]]: first mention\n');
 const { startServer } = require('../src/server');
 const discover = require('../src/discover');
 
@@ -110,7 +113,7 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   assert(/^\d{4}-\d{2}-\d{2}_\d{4}$/.test(session.session_id), `session id looks like a date: ${session.session_id}`);
   const q1 = await next('question');
   assert(q1.text === 'What is on your mind today?', 'opening question delivered');
-  assert(fs.existsSync(path.join(tmp, 'vault', 'Madrone', 'master_dossier.md')) && fs.existsSync(path.join(tmp, 'vault', 'Madrone', 'Sessions', 'old_session.md')) && !fs.existsSync(path.join(tmp, 'vault', 'master_dossier.md')), 'legacy files migrated into Madrone/');
+  assert(fs.existsSync(path.join(tmp, 'vault', 'Core', 'master_dossier.md')) && fs.existsSync(path.join(tmp, 'vault', 'Core', 'Sessions', 'old_session.md')) && !fs.existsSync(path.join(tmp, 'vault', 'master_dossier.md')), 'legacy files migrated into Core/');
 
   // Stream a fake recording to the archive socket.
   const archive = new WebSocket(`${base}/ws/archive?session=${session.session_id}&kind=video`);
@@ -153,7 +156,7 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   archive.close();
   ws.send(JSON.stringify({ type: 'end_session' }));
   const review = await next('review');
-  assert(review.summary.includes('Ship [[Madrone Context]]'), 'summary parsed out of a fenced JSON reply');
+  assert(review.summary.includes('Ship [[Core Context]]'), 'summary parsed out of a fenced JSON reply');
   assert(review.video_status === 'pending', 'video analysis is pending on a Gemini model');
   assert(review.transcript.some(t => t.role === 'user' && t.text === 'Final words before concluding.'), 'final utterance landed in the transcript');
   const analysis = await next('analysis');
@@ -164,20 +167,20 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   assert(fs.existsSync(saved.note_path), `note written: ${saved.note_path}`);
   const note = fs.readFileSync(saved.note_path, 'utf-8');
   assert(note.startsWith('---\nsession_id: ' + session.session_id), 'note frontmatter carries the session id');
-  assert(note.includes('recording: "Madrone/archives/'), 'note links to the recording by vault-relative path');
+  assert(note.includes('recording: "Core/archives/'), 'note links to the recording by vault-relative path');
   assert(note.includes(`![[${session.session_id}_video.webm]]`), 'note embeds the recording for inline playback');
-  assert(note.includes('people:\n  - "[[Jane Doe]]"') && note.includes('projects:\n  - "[[Madrone Context]]"\ntopics:') && note.includes('energy: "high"') && note.includes('confidence: 8') && note.includes('incongruence: false'), 'note properties carry links and scores');
+  assert(note.includes('people:\n  - "[[Jane Doe]]"') && note.includes('projects:\n  - "[[Core Context]]"\ntopics:') && note.includes('energy: "high"') && note.includes('confidence: 8') && note.includes('incongruence: false'), 'note properties carry links and scores');
   assert(saved.entities.projects.length === 1, 'duplicate spelling of a project collapsed onto one note');
-  const jane = fs.readFileSync(path.join(tmp, 'vault', 'Madrone', 'People', 'Jane Doe.md'), 'utf-8');
+  const jane = fs.readFileSync(path.join(tmp, 'vault', 'Core', 'People', 'Jane Doe.md'), 'utf-8');
   assert(jane.includes('first mention') && jane.includes(`[[${session.session_id}_session|`) && jane.includes('A friend who will test the app'), 'existing person note gained a mention line and kept its history');
-  assert(fs.existsSync(path.join(tmp, 'vault', 'Madrone', 'Projects', 'Madrone Context.md')) && fs.existsSync(path.join(tmp, 'vault', 'Madrone', 'Topics', 'Distribution.md')), 'new project and topic notes created');
-  assert(saved.base_created && fs.readFileSync(path.join(tmp, 'vault', 'Madrone', 'Madrone Sessions.base'), 'utf-8').includes('file.hasTag("madrone-session")'), 'Bases file written');
+  assert(fs.existsSync(path.join(tmp, 'vault', 'Core', 'Projects', 'Core Context.md')) && fs.existsSync(path.join(tmp, 'vault', 'Core', 'Decisions', 'Distribution.md')), 'new project and topic notes created');
+  assert(saved.base_created && fs.readFileSync(path.join(tmp, 'vault', 'Core', 'Core Sessions.base'), 'utf-8').includes('file.hasTag("madrone-session")'), 'Bases file written');
   assert(saved.obsidian_url && saved.obsidian_url.startsWith('obsidian://open?path='), 'saved message carries an Obsidian link inside a vault');
   assert(note.includes('**00:00 AI:** What is on your mind today?') && note.includes('You:** I want to ship'), 'transcript is time-indexed');
   assert(note.includes('From the video'), 'video insights merged into the note');
-  const dossier = fs.readFileSync(path.join(tmp, 'vault', 'Madrone', 'master_dossier.md'), 'utf-8');
+  const dossier = fs.readFileSync(path.join(tmp, 'vault', 'Core', 'master_dossier.md'), 'utf-8');
   assert(dossier.includes('Ship the app to friends') && saved.dossier_updated, 'dossier rewritten');
-  const video = path.join(tmp, 'vault', 'Madrone', 'archives', session.session_id.slice(0, 4), session.session_id.slice(5, 7), `${session.session_id}_video.webm`);
+  const video = path.join(tmp, 'vault', 'Core', 'archives', session.session_id.slice(0, 4), session.session_id.slice(5, 7), `${session.session_id}_video.webm`);
   assert(fs.statSync(video).size === 50000, 'recording streamed to archives/YYYY/MM with the session id');
 
   // Second session: discard deletes the recording.
@@ -194,13 +197,13 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   ws.send(JSON.stringify({ type: 'discard_session' }));
   const discarded = await next('discarded');
   assert(discarded.removed.length === 1 && !fs.existsSync(discarded.removed[0]), 'discard deleted the recording');
-  assert(!fs.existsSync(path.join(tmp, 'vault', 'Madrone', 'Sessions', `${s2.session_id}_session.md`)), 'discard wrote no note');
-  const history = fs.readdirSync(path.join(tmp, 'vault', 'Madrone', 'dossier_history'));
+  assert(!fs.existsSync(path.join(tmp, 'vault', 'Core', 'Sessions', `${s2.session_id}_session.md`)), 'discard wrote no note');
+  const history = fs.readdirSync(path.join(tmp, 'vault', 'Core', 'dossier_history'));
   assert(history.length === 1, 'the migrated legacy dossier was backed up before the first rewrite');
 
   // ---- Contexts and the inbox review ----
   config.updateContext(config.listContexts()[0].id, { name: 'Personal' });
-  const work = config.addContext({ name: 'Madrone Collective', notesDir: path.join(tmp, 'vault', 'Madrone Collective') });
+  const work = config.addContext({ name: 'Core Collective', notesDir: path.join(tmp, 'vault', 'Core Collective') });
   const inboxDir = path.join(tmp, 'vault', 'Inbox');
   fs.mkdirSync(inboxDir, { recursive: true });
   fs.writeFileSync(path.join(inboxDir, 'Recording 1.m4a'), Buffer.alloc(4000, 7));
@@ -227,7 +230,7 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
       transcript: 'Yes, a to-do for personal, due Friday the 18th. And the note is a thought for the collective.',
       triage: [
         { item: audioId, kind: 'todo', context: 'personal', title: 'Call the vet about Rex', text: 'Call the vet about Rex.', due: '2026-09-18', people: [], projects: [], topics: ['Pets'] },
-        { item: noteId, kind: 'thought', context: 'Madrone Collective', title: 'Shared vault template for the beta group', text: 'Pitch the beta group on a shared vault template.', due: null, people: ['Jane Doe'], projects: ['Madrone Context'], topics: [] }
+        { item: noteId, kind: 'thought', context: 'Core Collective', title: 'Shared vault template for the beta group', text: 'Pitch the beta group on a shared vault template.', due: null, people: ['Jane Doe'], projects: ['Core Context'], topics: [] }
       ],
       question: "That's everything in your inbox.", done: true } };
   };
@@ -238,16 +241,16 @@ function assert(cond, msg) { if (!cond) { console.error('FAIL:', msg); process.e
   ws.send(Buffer.alloc(5000, 9));
   const t1 = await next('triage');
   const t2 = await next('triage');
-  assert([t1, t2].some(t => t.kind === 'todo' && t.context === 'Personal') && [t2, t1].some(t => t.kind === 'thought' && t.context === 'Madrone Collective'), 'triage decisions routed to the named contexts');
+  assert([t1, t2].some(t => t.kind === 'todo' && t.context === 'Personal') && [t2, t1].some(t => t.kind === 'thought' && t.context === 'Core Collective'), 'triage decisions routed to the named contexts');
   await next('question');
   await next('inbox_done');
-  const actions = fs.readFileSync(path.join(tmp, 'vault', 'Madrone', 'Action Items.md'), 'utf-8');
+  const actions = fs.readFileSync(path.join(tmp, 'vault', 'Core', 'Action Items.md'), 'utf-8');
   assert(actions.includes('- [ ] Call the vet about Rex 📅 2026-09-18'), 'to-do written in Obsidian Tasks format with its due date');
-  const thoughtsDir = path.join(tmp, 'vault', 'Madrone Collective', 'Madrone', 'Thoughts');
+  const thoughtsDir = path.join(tmp, 'vault', 'Core Collective', 'Core', 'Thoughts');
   const thoughtFile = fs.readdirSync(thoughtsDir)[0];
   const thought = fs.readFileSync(path.join(thoughtsDir, thoughtFile), 'utf-8');
-  assert(thought.includes('Shared vault template') && thought.includes('[[Jane Doe]]') && fs.existsSync(path.join(tmp, 'vault', 'Madrone Collective', 'Madrone', 'People', 'Jane Doe.md')), 'thought written in the other context with its entity notes');
-  assert(fs.existsSync(path.join(tmp, 'vault', 'Madrone', 'Topics', 'Pets.md')), 'topic note created in the to-do context');
+  assert(thought.includes('Shared vault template') && thought.includes('[[Jane Doe]]') && fs.existsSync(path.join(tmp, 'vault', 'Core Collective', 'Core', 'People', 'Jane Doe.md')), 'thought written in the other context with its entity notes');
+  assert(fs.existsSync(path.join(tmp, 'vault', 'Core', 'Decisions', 'Pets.md')), 'topic note created in the to-do context');
   assert(!fs.existsSync(path.join(inboxDir, 'Recording 1.m4a')) && fs.readdirSync(path.join(inboxDir, 'Processed')).length === 1, 'reviewed items moved into Inbox/Processed');
   assert(inboxMod.scan(config.listInboxes(), config.getInboxProcessed()).filter(i => !i.placeholder).length === 0, 'no new items remain after the review');
 

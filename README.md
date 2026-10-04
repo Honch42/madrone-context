@@ -13,7 +13,7 @@ A short spoken interview with an AI that asks you *why*. It records your answers
 | An Anthropic API key | Only for the Claude models | https://console.anthropic.com/settings/keys |
 | An OpenAI API key | Only for the GPT models | https://platform.openai.com/api-keys |
 | Obsidian | No. Notes are Markdown files; point the notes folder at a vault if you use one. | https://obsidian.md |
-| Screenpipe | No. If installed, recent screen activity can be pulled into an interview when you ask. | https://screenpi.pe |
+| OpenRecall | No. If installed, recent screen activity can be pulled into an interview when you ask. | https://screenpi.pe |
 
 ## Installing
 
@@ -50,7 +50,7 @@ Then press **Start**. Everything else is optional and the app offers it when it 
 - **Camera** is a checkbox on the start screen. macOS asks for access the first time you begin a session with it on.
 - **Claude and GPT** models appear in the model menu. Pick one and the app asks for that vendor's key right there, offering any key it finds on your Mac first. If you use the Anthropic CLI (`ant auth login`), Claude models can use that sign-in with no key at all.
 - **Google accounts** are suggested once after your first saved session, and offered again whenever you ask an interview about your calendar or email before an account is connected.
-- **Screenpipe** is detected automatically if installed.
+- **OpenRecall** is detected automatically if installed.
 
 Keys are stored encrypted in your macOS Keychain. Everything can be changed later from the **Settings** button, which also has a "What this app can see" section and a **Forget everything** button that removes every key and connection while leaving your notes alone.
 
@@ -147,7 +147,7 @@ If you used an earlier version that wrote `master_dossier.md` and `sessions/` st
 
 A context is an area of life or work with its own notes: its own Master Dossier, sessions, people and projects. Each context is a folder, either a whole Obsidian vault or a folder inside one, so you can keep four areas as four folders in one iCloud vault, or point each at a separate vault. Add and name them in **Settings > Contexts**, and pick the one you want in the top bar before a session. Each context gets its own `Madrone/` folder as described above.
 
-**Google accounts per context.** If you've connected more than one Google account, each context in Settings shows a checkbox row for them. Leave every box checked (the default) and a context sees all your connected accounts, including any you connect later. Check just one or two and an interview in that context only pulls from those, so a work-only context never sees personal email and vice versa. Uncheck everything to give a context no Google integration at all. Screenpipe stays outside this: it's a single local database per Mac, so there's nothing to choose between.
+**Google accounts per context.** If you've connected more than one Google account, each context in Settings shows a checkbox row for them. Leave every box checked (the default) and a context sees all your connected accounts, including any you connect later. Check just one or two and an interview in that context only pulls from those, so a work-only context never sees personal email and vice versa. Uncheck everything to give a context no Google integration at all. OpenRecall stays outside this: it's a single local database per Mac, so there's nothing to choose between.
 
 ## The inbox: captures from your phone
 
@@ -233,7 +233,7 @@ Leave the version blank to get a test build without publishing a release; the `.
 - **Microphone access was denied.** System Settings > Privacy & Security > Microphone, turn on Madrone Context, then restart the app.
 - **A Claude or GPT model returns an error as its first question.** The key for that vendor is missing, invalid, or out of credit. Check Settings and the vendor's dashboard.
 - **Video analysis failed.** Free-tier Gemini keys have low daily quotas and long sessions produce large uploads. The recording is kept; save the note anyway.
-- **Screenpipe shows "could not be read".** The `sqlite3` command must be available (it ships with macOS), and the database path must point at Screenpipe's `db.sqlite`.
+- **OpenRecall shows "could not be read".** The `sqlite3` command must be available (it ships with macOS), and the database path must point at OpenRecall's `db.sqlite`.
 - **Google account shows "needs reconnecting".** Click Connect account and sign in again. This happens if the OAuth consent screen was left in Testing status (connections expire after 7 days there), the account was unused for six months, or its Google password changed.
 
 ## Development
@@ -250,7 +250,7 @@ Layout:
 - `src/providers.js`: Gemini, Anthropic and OpenAI adapters behind one interface; the model list lives here.
 - `src/prompts.js`: every prompt, including the four personas.
 - `src/storage.js`: session ids, note format, dossier backups.
-- `src/google.js`, `src/screenpipe.js`, `src/mcp.js`: context sources.
+- `src/google.js`, `src/openrecall.js`, `src/mcp.js`: context sources.
 - `src/inbox.js`: inbox scanning, iCloud download, and writing to-dos and thoughts into a context.
 - `src/config.js`: settings and encrypted secrets.
 - `frontend/`: the interview screen (`index.html`, `app.js`, `style.css`) and the setup/settings page (`settings.html`).

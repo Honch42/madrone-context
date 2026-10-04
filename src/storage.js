@@ -10,7 +10,7 @@
 //   People/<Name>.md, Projects/<Name>.md, Topics/<Name>.md
 //                                      one note per person, project or topic the
 //                                      sessions mention; session notes link to them
-//   Madrone Sessions.base              an Obsidian Bases table of all sessions
+//   Core Sessions.base              an Obsidian Bases table of all sessions
 //   dossier_history/                   copies of the dossier before each rewrite
 //   archives/2026/09/<id>_video.webm   recordings (unless the recordings folder was moved)
 //   sync_state.json                    last-saved timestamp used for "catch me up"
@@ -22,9 +22,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const APP_FOLDER = 'Madrone';
-const ENTITY_KINDS = { people: 'People', projects: 'Projects', topics: 'Topics' };
-const ENTITY_TYPE = { people: 'person', projects: 'project', topics: 'topic' };
+const APP_FOLDER = 'Core';
+const ENTITY_KINDS = { people: 'People', projects: 'Projects', topics: 'Decisions' };
+const ENTITY_TYPE = { people: 'person', projects: 'project', topics: 'decision' };
 
 function pad(n) { return String(n).padStart(2, '0'); }
 
@@ -47,7 +47,7 @@ function layoutPaths(settings) {
     historyDir: path.join(root, 'dossier_history'),
     dossierPath: path.join(root, 'master_dossier.md'),
     syncStatePath: path.join(root, 'sync_state.json'),
-    basePath: path.join(root, 'Madrone Sessions.base'),
+    basePath: path.join(root, 'Core Sessions.base'),
     peopleDir: path.join(root, ENTITY_KINDS.people),
     projectsDir: path.join(root, ENTITY_KINDS.projects),
     topicsDir: path.join(root, ENTITY_KINDS.topics),
@@ -92,7 +92,7 @@ function migrateLayout(settings) {
       moved.push(to);
     } catch (e) { /* leave it where it is */ }
   }
-  return moved;
+  console.log("MIGRATED:", moved); return moved;
 }
 
 // The Obsidian vault containing a folder, if any (walks up looking for .obsidian).
@@ -211,8 +211,15 @@ function upsertEntityNote(p, kind, entity, sessionId) {
 
   if (!fs.existsSync(file)) {
     const today = new Date();
-    const lines = [
+        const lines = [
       '---',
+      `schema: core.${ENTITY_TYPE[kind]}/v1`,
+      'status: hypothesis',
+      'confidence: 0.7',
+      `sources: [madrone-session:${sessionId}]`,
+      'created_by: madrone',
+      'verified_by: null',
+      'verified_at: null',
       `type: ${ENTITY_TYPE[kind]}`,
       'aliases: []',
       `created: ${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`,

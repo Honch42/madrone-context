@@ -139,7 +139,7 @@ function appendToFile(file, header, block) {
 
 // A to-do in Obsidian Tasks format: "- [ ] title 📅 YYYY-MM-DD".
 function appendActionItem(ctxSettings, { title, due, capturedAt, sessionId, note }) {
-  const file = path.join(ctxSettings.workspaceDir, 'Madrone', 'Action Items.md');
+  const file = path.join(ctxSettings.workspaceDir, 'Core', 'Action Items.md');
   const header = '---\ntags:\n  - madrone-actions\n---\n# Action Items\n\nCaptured from the inbox and clarified in interviews. Tick items off here; Obsidian Tasks understands the format.\n';
   const bits = [`- [ ] ${title.trim()}`];
   if (due && /^\d{4}-\d{2}-\d{2}$/.test(due)) bits.push(`📅 ${due}`);
@@ -154,7 +154,7 @@ function appendActionItem(ctxSettings, { title, due, capturedAt, sessionId, note
 function appendThought(ctxSettings, { title, text, capturedAt, sessionId, links = [] }) {
   const d = new Date(capturedAt || Date.now());
   const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const file = path.join(ctxSettings.workspaceDir, 'Madrone', 'Thoughts', `${day}.md`);
+  const file = path.join(ctxSettings.workspaceDir, 'Core', 'Thoughts', `${day}.md`);
   const header = `---\ndate: ${day}\ntags:\n  - madrone-thoughts\n---\n# Thoughts ${day}\n`;
   const lines = [`\n## ${pad(d.getHours())}:${pad(d.getMinutes())} ${title.trim()}`, '', (text || '').trim()];
   if (links.length) lines.push('', links.map(n => `[[${n}]]`).join(' · '));

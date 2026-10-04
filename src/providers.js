@@ -15,11 +15,99 @@ const OpenAI = require('openai');
 const { AUDIO_TURN_PROMPT, transcriptTurnPrompt } = require('./prompts');
 const { ANTHROPIC_PROFILE_AUTH } = require('./config');
 
-// The lightweight model that turns audio into text for the non-Gemini "hybrid" path.
-const TRANSCRIBE_MODEL = 'gemini-3.6-flash';
+// Dynamic resolution for the latest available Flash model with fallback
+let cachedFlashModel = null;
+let lastModelCheck = 0;
+let inflightResolve = null;
+
+async function resolveFlashModel(ai, log = console.log) {
+  const now = Date.now();
+  if (cachedFlashModel && (now - lastModelCheck < 12 * 3600 * 1000)) {
+    return cachedFlashModel;
+  }
+  if (inflightResolve) return inflightResolve;
+
+  inflightResolve = (async () => {
+    if (process.env.GEMINI_MODEL) {
+      cachedFlashModel = process.env.GEMINI_MODEL;
+      lastModelCheck = now;
+      return cachedFlashModel;
+    }
+
+    const priorityList = [
+      'gemini-flash-latest',
+      'gemini-2.5-flash'
+    ];
+    for (const candidate of priorityList) {
+      try {
+        const probe = await ai.models.generateContent({ model: candidate, contents: 'ping' });
+        if (probe && (probe.text !== undefined || (probe.candidates && probe.candidates.length > 0))) {
+          cachedFlashModel = candidate;
+          lastModelCheck = now;
+          log(`[providers] Resolved active Flash model: ${candidate}`);
+          return candidate;
+        }
+      } catch (e) {
+        if (e.status === 401 || e.status === 403 || e.status === 429 || (e.status && e.status >= 500) || (e.message && e.message.includes('API_KEY_INVALID'))) {
+          throw e;
+        }
+      }
+    }
+
+    // Discovery fallback via models.list()
+    try {
+      const candidates = [];
+      const list = await ai.models.list();
+      for await (const m of list) {
+        const clean = (m.name || '').replace(/^models\//, '');
+        if (/flash/i.test(clean) && !/image|tts|preview|exp|thinking|native-audio/i.test(clean)) {
+          candidates.push(clean);
+        }
+      }
+      candidates.sort((a, b) => {
+        // Demote 'lite' models
+        const aLite = a.includes('lite') ? 1 : 0;
+        const bLite = b.includes('lite') ? 1 : 0;
+        if (aLite !== bLite) return aLite - bLite;
+        const vA = parseFloat(a.match(/gemini-([\d.]+)/)?.[1] ?? 0);
+        const vB = parseFloat(b.match(/gemini-([\d.]+)/)?.[1] ?? 0);
+        return vB - vA;
+      });
+      for (const n of candidates) {
+        try {
+          const probe = await ai.models.generateContent({ model: n, contents: 'ping' });
+          if (probe && (probe.text !== undefined || (probe.candidates && probe.candidates.length > 0))) {
+            cachedFlashModel = n;
+            lastModelCheck = now;
+            log(`[providers] Discovered active Flash model via API: ${n}`);
+            return n;
+          }
+        } catch (e) {
+          if (e.status === 401 || e.status === 403 || e.status === 429 || (e.status && e.status >= 500) || (e.message && e.message.includes('API_KEY_INVALID'))) {
+            throw e;
+          }
+        }
+      }
+    } catch (e) {
+      if (e.status === 401 || e.status === 403 || e.status === 429 || (e.status && e.status >= 500) || (e.message && e.message.includes('API_KEY_INVALID'))) {
+        throw e;
+      }
+    }
+
+    cachedFlashModel = 'gemini-flash-latest';
+    // Short negative cache (60s) so transient failure does not freeze for 12 hours
+    lastModelCheck = now - (12 * 3600 * 1000) + 60000;
+    return 'gemini-flash-latest';
+  })().finally(() => {
+    inflightResolve = null;
+  });
+
+  return inflightResolve;
+}
 
 const MODELS = [
-  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', vendor: 'gemini', video: true, note: 'Fast. Analyzes the session video.' },
+  { id: 'gemini-flash-latest', label: 'Gemini Flash Latest', vendor: 'gemini', video: true, note: 'Fastest stable Flash model. Analyzes audio and video.' },
+  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', vendor: 'gemini', video: true, note: 'Fast. Analyzes the session video.' },
   { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', vendor: 'gemini', video: true, note: 'Deeper reasoning. Analyzes the session video.' },
   { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', vendor: 'anthropic', video: false, note: 'Transcript-based. Can read your notes folder.' },
   { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', vendor: 'anthropic', video: false, note: 'Most capable. Transcript-based. Can read your notes folder.' },
@@ -30,7 +118,8 @@ const MODELS = [
 const VENDOR_LABEL = { gemini: 'Gemini', anthropic: 'Anthropic', openai: 'OpenAI' };
 
 function modelInfo(id) {
-  return MODELS.find(m => m.id === id) || null;
+  const targetId = id === 'gemini-3.6-flash' ? 'gemini-flash-latest' : id;
+  return MODELS.find(m => m.id === targetId) || null;
 }
 
 // Which models can run with the keys the user has entered. Every non-Gemini
@@ -74,20 +163,21 @@ class GeminiTranscriber {
     this.ai = new GoogleGenAI({ apiKey });
   }
   async transcribe(buffer, mime) {
+    const model = await resolveFlashModel(this.ai);
     const res = await this.ai.models.generateContent({
-      model: TRANSCRIBE_MODEL,
+      model,
       contents: [{ role: 'user', parts: [
         { inlineData: { data: buffer.toString('base64'), mimeType: mime } },
         { text: 'Transcribe this audio verbatim. Output ONLY the transcription, nothing else. If there is no speech, output an empty string.' }
       ] }]
     });
-    return (res.text || '').trim();
+    return { transcript: (res.text || '').trim(), model };
   }
 }
 
 class GeminiProvider {
   constructor({ modelId, apiKey, systemPrompt, log }) {
-    this.modelId = modelId;
+    this.modelId = modelId === 'gemini-3.1-pro' ? 'gemini-3.1-pro-preview' : modelId;
     this.ai = new GoogleGenAI({ apiKey });
     this.systemPrompt = systemPrompt;
     this.history = [];
@@ -205,7 +295,8 @@ class AnthropicProvider {
   }
 
   async respondToAudio(buffer, mime, note = '') {
-    const transcript = await this.transcriber.transcribe(buffer, mime);
+    const tRes = await this.transcriber.transcribe(buffer, mime);
+    const transcript = (typeof tRes === 'object' && tRes !== null) ? (tRes.transcript || '') : (tRes || '');
     const out = await this.respond(transcriptTurnPrompt(transcript || '(no speech detected)') + note);
     const parsed = extractJson(out);
     if (parsed) parsed.transcript = transcript;
@@ -279,7 +370,8 @@ class OpenAIProvider {
   }
 
   async respondToAudio(buffer, mime, note = '') {
-    const transcript = await this.transcriber.transcribe(buffer, mime);
+    const tRes = await this.transcriber.transcribe(buffer, mime);
+    const transcript = (typeof tRes === 'object' && tRes !== null) ? (tRes.transcript || '') : (tRes || '');
     const out = await this.respond(transcriptTurnPrompt(transcript || '(no speech detected)') + note);
     const parsed = extractJson(out);
     if (parsed) parsed.transcript = transcript;
@@ -301,10 +393,11 @@ class OpenAIProvider {
 // ---------------------------------------------------------------------------
 
 function createProvider({ modelId, keys, systemPrompt, tools, log }) {
-  const info = modelInfo(modelId);
-  if (!info) throw new Error(`Unknown model "${modelId}".`);
+  const resolvedModelId = modelId === 'gemini-3.6-flash' ? 'gemini-flash-latest' : modelId;
+  const info = modelInfo(resolvedModelId);
+  if (!info) throw new Error(`Unknown model "${resolvedModelId}".`);
   if (!keys.gemini) throw new Error('A Gemini API key is required. Add one in Settings.');
-  if (info.vendor === 'gemini') return new GeminiProvider({ modelId, apiKey: keys.gemini, systemPrompt, log });
+  if (info.vendor === 'gemini') return new GeminiProvider({ modelId: resolvedModelId, apiKey: keys.gemini, systemPrompt, log });
   if (info.vendor === 'anthropic') {
     if (!keys.anthropic) throw new Error('Claude models need an Anthropic API key or an Anthropic CLI sign-in. Add one in Settings.');
     return new AnthropicProvider({ modelId, apiKey: keys.anthropic, geminiKey: keys.gemini, systemPrompt, tools, log });
@@ -313,4 +406,6 @@ function createProvider({ modelId, keys, systemPrompt, tools, log }) {
   return new OpenAIProvider({ modelId, apiKey: keys.openai, geminiKey: keys.gemini, systemPrompt, tools, log });
 }
 
-module.exports = { MODELS, TRANSCRIBE_MODEL, modelInfo, availableModels, extractJson, createProvider, toolResultText };
+const TRANSCRIBE_MODEL = 'gemini-flash-latest';
+
+module.exports = { MODELS, TRANSCRIBE_MODEL, resolveFlashModel, modelInfo, availableModels, extractJson, createProvider, toolResultText };

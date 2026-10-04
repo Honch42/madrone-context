@@ -34,7 +34,7 @@ function systemPrompt({ persona, dossier, hasVault, known }) {
   const p = PERSONAS[persona] || PERSONAS.socratic;
   let text = `${p.prompt}
 
-You are conducting a live verbal interview. Each turn you will receive either an audio clip of the user speaking or a written transcript of what they said. Listen carefully, note any vocal cues when you have audio, and respond with ONE concise follow-up question or reflection. The user reads your question on screen; keep it short enough to read at a glance (one to three sentences).
+You are conducting a live verbal context interrogation. You are an investigative auditor, NOT a life coach. Your mission is to proactively tease out the hidden context, friction, and trade-offs behind the user's actual decisions. Drive the conversation with concrete observations. Never ask passive questions like "What would you like to discuss today?". Listen carefully to their spoken answer and respond with ONE sharp follow-up question digging into the underlying rationale. The user reads your question on screen; keep it short enough to read at a glance (one to three sentences).
 
 CRITICAL: You must ALWAYS output a single valid JSON object and nothing else. You have exactly three options:
 
@@ -87,14 +87,24 @@ function vaultContextNote(items) {
 
 const WIND_DOWN_NOTE = '\n\n(Time note: the session has passed its soft time limit. Steer toward a natural summary. Ask at most one or two more questions, then invite the user to conclude.)';
 
-function openingPrompt({ deepDive, context, hasDossier }) {
+function openingPrompt({ deepDive, context, hasDossier, card }) {
   if (deepDive) {
     return `The user has just re-entered the interview specifically to investigate a discrepancy between their words and their body language from the previous session. Here is the discrepancy that was noted: """${context || ''}""". Immediately ask them a direct, non-accusatory question (Option 1 JSON) about why their body language may not have matched their words. For the transcript field, put "[Deep dive started]".`;
   }
-  if (hasDossier) {
-    return 'The user has just started a new session. Based on their Master Dossier, give a highly contextual, proactive opening question (Option 1 JSON). For the transcript field, put "[Session started]".';
+  if (card && card.question) {
+    return `The user has just started a session. You are conducting an active, high-level context investigation. Do NOT ask a generic "what's on your mind?" question. Do NOT act like a passive coach.
+We have detected an active decision fork or focus from recent background telemetry:
+- Badge: ${card.badge || 'TELEMETRY'}
+- Question: "${card.question}"
+- Context/Evidence: "${card.context || ''}"
+- Working Hypothesis: "${card.hypothesis || ''}"
+
+Immediately take the wheel. Deliver a sharp, direct opening question (Option 1 JSON) citing this specific observation and asking what drove the decision or realization. Output Option 1 JSON with your question and transcript: "[Investigation started: ${card.badge || 'Observation'}]".`;
   }
-  return "The user has just started a session. Give a concise, welcoming first question about what's on their mind (Option 1 JSON). For the transcript field, put \"[Session started]\".";
+  if (hasDossier) {
+    return 'The user has just started a new session. Deliver a sharp, direct opening question citing a concrete active project, unresolved decision, or technical fork from their Master Dossier (Option 1 JSON). NEVER ask generic coaching questions like "Where is your cognitive energy sitting?", "What trade-off did you face today?", or "What is on your mind?". Reference a specific project or topic by name. For the transcript field, put "[Session started]".';
+  }
+  return 'The user has just started a session. Based on their recent work, ask a direct question citing a specific commit, file, or technical decision (Option 1 JSON). NEVER ask generic coaching questions like "What trade-off did you face today?". For the transcript field, put "[Session started]".';
 }
 
 function contextFollowupPrompt(kind, contextText) {
@@ -112,18 +122,27 @@ function textSummaryPrompt(known) {
 "summary": a thorough Markdown summary of what the user talked about, organized under "Primary objective", "Underlying drivers", "Explicit constraints" and "Open threads";
 "insights": a Markdown bulleted list of the most interesting insights from the conversation (motivations, tensions, decisions, emotional tone you could infer from the words);
 "people": a list of the people the user discussed, each as {"name": "Full name as the user would write it", "note": "one sentence on their role in what was discussed"};
-"projects": a list of the projects, companies, products or initiatives discussed, each as {"name": "...", "note": "one sentence"};
-"topics": a list of up to five recurring themes (for example "Hiring", "Burnout", "Pricing"), each as {"name": "...", "note": "one sentence"};
+"projects": a list of the projects, companies, products or initiatives the user is building or directing, each as {"name": "...", "note": "one sentence"};
+"topics": a list of up to five recurring strategic themes (for example "Hiring", "Burnout", "Pricing"), each as {"name": "...", "note": "one sentence"};
 "energy": one of "high", "neutral" or "depleted", judged from the words;
 "confidence": an integer from 1 to 10 for how confident the user sounded overall about what they discussed.
+
+CRITICAL DISTILLATION RULES:
+1. USER TURNS ONLY: Infer goals, drivers, constraints, energy, and confidence ONLY from what the USER said. Interviewer turns are conversational scaffolding, NEVER evidence about the user.
+2. DO NOT ATTRIBUTE INTERVIEWER DEFECTS TO USER: If the user expressed annoyance with generic or repetitive questions, that is an interviewer prompt flaw, NOT a user personality trait (do not label them 'defensive' or 'irritated').
+3. PRESERVE HEDGING: Do NOT escalate casual exploration or mild concerns into 'Explicit constraints'. Put mild concerns or open inquiries under 'Open threads'.
+4. TAXONOMY INTEGRITY:
+   - 'projects': Things the user is building or directing (e.g. Antigravity, Madrone Context).
+   - 'topics': Strategic themes or decision domains (e.g. Switching Costs, Cost Optimization). Do not put third-party models or tools here.
+
 ${knownText ? `Existing notes already use these names; reuse them exactly when they refer to the same person, project or topic, and add new ones only when genuinely new:\n${knownText}\n` : ''}Do not put people, projects or topics in the summary as [[wikilinks]] unless they appear in your lists; in the summary and insights, refer to listed names with [[wikilinks]] so Obsidian connects them. ${OBSIDIAN_STYLE} Output raw JSON only.`;
 }
 
 function videoAnalysisPrompt() {
   return `Attached is the background video recording of the user during this session. Analyze their body language, facial expression, energy and voice against what they said. Output a JSON object with exactly two keys:
-"insights": a Markdown bulleted list of behavioral observations tied to specific topics (confidence, hesitation, stress, excitement, energy dips);
-"synergy_diff": a Markdown analysis of where the user's words and their physical cues agreed or diverged, with a short "Detected incongruence" section listing any topic where stated confidence did not match visible cues, or "None detected";
-"incongruence": true if at least one clear incongruence was detected, otherwise false.
+"insights": a Markdown bulleted list of behavioral observations tied to specific topics (confidence, hesitation, stress, excitement, energy dips) with turn timestamps;
+"synergy_diff": a Markdown analysis of where the user's words and their physical cues agreed or diverged, with a short "Detected incongruence" section listing any topic where stated confidence did not match visible cues (citing specific timestamps for both), or "None detected";
+"incongruence": true if at least one clear incongruence was detected (occurring in the same turn/topic), otherwise false.
 ${OBSIDIAN_STYLE} Output raw JSON only.`;
 }
 
@@ -140,42 +159,66 @@ Here is the note from their most recent session:
 ${sessionNote}
 """
 
-Output the fully updated Master Dossier in Markdown. Keep it under about 1500 words, organized with headings such as "Current goals", "Active projects", "Constraints and non-negotiables", "Emotional state and energy", "Recurring tensions", "Action items" and "Recent sessions" (one line per session with its date). Merge new information, update anything that changed, and drop items that are clearly resolved. ${OBSIDIAN_STYLE} Do not output JSON.`;
+CRITICAL MASTER DOSSIER RULES:
+1. PRESERVE HEDGING AND PROVENANCE: Do NOT upgrade conditional thoughts or exploratory statements into 'Constraints and non-negotiables'. A statement like 'I would tolerate 1-2 months of delay' is a tentative preference, not a non-negotiable rule.
+2. DO NOT INFLATE INTENSITY: Use calibrated language. Do not invent absolutes like 'Zero tolerance' unless the user literally said 'zero tolerance'. Do not record transient end-of-day fatigue as permanent psychological traits like 'Severe Cognitive Depletion'.
+3. NON-DESTRUCTIVE ACCRETION: Retain existing goals, constraints, and projects from the Master Dossier unless the new session explicitly contradicts or resolves them. Never silently drop existing items.
+4. NO INTERVIEWER FLIP: Never log the user's reaction to repetitive or generic questions as a psychological trait in 'Emotional state and energy'.
+
+Output the fully updated Master Dossier in Markdown. Keep it under about 1500 words, organized with headings such as "Current goals", "Active projects", "Constraints and non-negotiables", "Emotional state and energy", "Recurring tensions", "Action items" and "Recent sessions" (one line per session with its date). Merge new information, update anything that changed, and drop items only when clearly resolved. ${OBSIDIAN_STYLE} Do not output JSON.`;
 }
 
 // ---------------------------------------------------------------------------
 // Inbox review: a different kind of session. The interviewer walks through
 // captured items one at a time and turns each into a decision.
 
-function inboxSystemPrompt({ contexts, items, known }) {
-  const contextList = contexts.map(c => `- "${c.name}"`).join('\n');
-  const itemList = items.map((it, i) => {
-    const when = it.capturedAt.slice(0, 16).replace('T', ' ');
-    const body = (it.text || '(empty)').slice(0, 1500);
-    return `${i + 1}. [id ${it.id}] ${it.kind === 'audio' ? 'Voice memo' : 'Note'} "${it.name}", captured ${when}:\n<<<\n${body}\n>>>`;
-  }).join('\n\n');
-  const knownText = knownEntitiesText(known);
-  return `You are a calm, efficient assistant helping the user clear their capture inbox: quick voice memos and notes they recorded during the day. Work through the items IN ORDER, one at a time. For each item: read it back in one short sentence in your own words, then either ask ONE clarifying question if you genuinely cannot tell what it is or where it belongs, or propose a decision and ask the user to confirm or correct it. Keep every question to one or two sentences; the user reads it on screen.
+function inboxSystemPrompt({ contexts, items: hypotheses, known }) {
+  const ctxList = contexts.map(c => `- "${c.name}"`).join('\n');
+  const itemsList = hypotheses.map(h => `ID: ${h.id}\nSource: ${h.name}\nContent: ${h.text}\n---`).join('\n\n');
+  return `You are an AI assistant helping the user review unverified hypotheses generated by background agents.
+These agents observed the user's screen/audio (OpenRecall) and wrote hypotheses into the Shadow Graph.
+The user must adjudicate them to move them into the Core knowledge graph.
 
-The user's contexts (areas of life or work, each with its own notes):
-${contextList}
+Your available contexts:
+${ctxList}
 
-The items to review (each between <<< and >>>):
-${itemList}
-${knownText ? `\nPeople, projects and topics that already have notes (use these exact names):\n${knownText}\n` : ''}
+The unverified hypotheses to review:
+${itemsList}
+
 CRITICAL: You must ALWAYS output a single valid JSON object and nothing else. Options:
 
-Option 1 (ask or propose): {"transcript": "what the user just said", "question": "your read-back and question"}
+Option 1 (ask or propose): {"transcript": "what the user just said", "question": "your read-back and question about the hypothesis"}
 
-Option 2 (decide): when the user has confirmed what an item is and where it goes, output the decision AND move on to the next item in the same reply:
+Option 2 (adjudicate): when the user confirms or rejects a hypothesis, output the verdict AND ask about the next hypothesis:
 {"transcript": "what the user just said",
- "triage": [{"item": "<item id>", "kind": "todo" | "thought" | "discard", "context": "<exact context name>", "title": "short imperative title for a todo, or a short title for a thought", "text": "the clarified content, one to three sentences", "due": "YYYY-MM-DD or null", "people": ["Full Name"], "projects": ["Project"], "topics": ["Topic"]}],
- "question": "read-back of the NEXT item and your question, or a closing line if none remain"}
-"triage" may hold several decisions when the user resolves several items at once. Use "discard" only when the user says so. If the user does not name a context, pick the most plausible one and say which you chose.
+ "verdicts": [{"id": "<hypothesis id>", "action": "promote" | "revise" | "reject", "context": "<exact context name>", "title": "short title", "text": "the verified content, possibly revised", "reason": "reason if rejected"}],
+ "question": "read-back of the NEXT hypothesis, or a closing line if none remain"}
+"verdicts" may hold several decisions. Use "reject" if the background agent hallucinated or the user disagrees. The "reason" will be used as a negative example to tune future distillers.
 
-Option 3 (all done): when every item has a decision, output {"transcript": "...", "question": "That's everything in your inbox. Press Cmd+Enter to finish, or tell me if you'd like to revisit any item.", "done": true}.
+Option 3 (all done): when every hypothesis is adjudicated, output {"transcript": "...", "question": "That's all hypotheses reviewed. Press Cmd+Enter to finish.", "done": true}.
+`;
+}
 
-Never invent items. Never output an item id that is not in the list.`;
+function brainDumpExtractionPrompt(transcript) {
+  return `You are analyzing an unprompted, stream-of-consciousness brain dump recorded by John.
+Extract the first-order drivers, decisions, candidate Master Dossier updates, and follow-up inquiry seeds.
+
+TRANSCRIPT:
+"""
+${transcript}
+"""
+
+CRITICAL: Output ONLY a single valid JSON block enclosed in \`\`\`json ... \`\`\` with this exact schema:
+{
+  "title": "Short punchy title for this dump (3-6 words)",
+  "summary": "Executive summary of the realization or thought (2-3 sentences)",
+  "decisions": ["Explicit decision or realization made by John"],
+  "people": [{"name": "Full Name", "note": "Context mentioned"}],
+  "projects": [{"name": "Project Name", "note": "Context mentioned"}],
+  "topics": [{"name": "Topic Name", "note": "Context mentioned"}],
+  "dossier_updates": ["Accretive insights about John's personal drives, values, trade-offs, or psychology"],
+  "follow_up_questions": ["Specific follow-up question for a future interview to unpack unstated details"]
+}`;
 }
 
 function inboxOpeningPrompt() {
@@ -183,6 +226,7 @@ function inboxOpeningPrompt() {
 }
 
 module.exports = {
+  brainDumpExtractionPrompt,
   inboxSystemPrompt,
   inboxOpeningPrompt,
   PERSONAS,
@@ -198,3 +242,4 @@ module.exports = {
   vaultContextNote,
   knownEntitiesText
 };
+

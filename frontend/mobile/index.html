@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Context</title>
+  
+  <!-- PWA & iOS standalone headers -->
+  <link rel="manifest" href="/mobile/manifest.json">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Context">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#090d16">
+  <link rel="apple-touch-icon" href="/static/assets/icon.png">
+
+  
+  <link rel="stylesheet" href="/mobile/style.css">
+</head>
+<body>
+
+  <!-- Top bar -->
+  <header class="top-bar">
+    <div class="brand-title">
+      <span>🌲</span> Context
+    </div>
+    <div class="timer-pill" id="timer-pill">
+      <span class="timer-dot"></span>
+      <span id="timer-display">00:00</span>
+    </div>
+    <div class="status-badge" id="status-badge">Ready</div>
+  </header>
+
+  <!-- Storage Sync Banner -->
+  <div id="sync-banner" style="background: #1e293b; border-bottom: 1px solid #334155; padding: 0.5rem 1rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem;">
+    <span id="sync-banner-text" style="color: #94a3b8;">Checking iPad local storage...</span>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+      <button id="btn-banner-sync" style="background: #16a34a; color: white; border: none; padding: 0.35rem 0.75rem; border-radius: 6px; font-weight: 600; font-size: 0.8rem; cursor: pointer;">Upload All</button>
+      <a href="/mobile/debug.html" style="background: #334155; color: #cbd5e1; text-decoration: none; padding: 0.35rem 0.6rem; border-radius: 6px; font-size: 0.8rem;">Audit</a>
+    </div>
+  </div>
+
+  <!-- Main Viewport -->
+  <main class="main-viewport">
+    
+    <!-- Question Card -->
+    <div class="card-wrapper" id="card-wrapper">
+      <div class="card-meta">
+        <span class="card-tag" id="card-tag">QUESTION</span>
+        <span class="card-count" id="card-count">1 of 1</span>
+      </div>
+      <div class="card-question" id="card-question">
+        Loading pre-computed Question Deck...
+      </div>
+      <div class="card-context" id="card-context">
+        Analyzing your recent work and Master Dossier gaps.
+      </div>
+    </div>
+
+    <!-- Quick Unprompted Dump Bar -->
+    <div class="freeform-shortcut-bar">
+      <button class="btn-freeform" id="btn-quick-dump">
+        💡 Unprompted Brain Dump (No Question)
+      </button>
+    </div>
+
+    <!-- Controls Dock -->
+    <footer class="controls-dock">
+      
+      <!-- Active Recording Indicator -->
+      <div class="recording-bar" id="recording-bar">
+        <div class="recording-indicator">
+          <span class="rec-dot"></span>
+          <span>LISTENING</span>
+        </div>
+        <div class="rec-timer" id="rec-timer" style="font-weight: 700; font-variant-numeric: tabular-nums;">00:00</div>
+      </div>
+
+      <!-- Action Row 1: Primary Controls -->
+      <div class="action-row">
+        <button class="btn btn-primary" id="btn-record">
+          🎙 Record Answer
+        </button>
+        <button class="btn btn-record-active" id="btn-finish-turn" style="display: none;">
+          ■ Finish Speaking
+        </button>
+        
+        <button class="btn btn-secondary" id="btn-skip">
+          ⏩ Skip
+        </button>
+        <button class="btn btn-danger" id="btn-dismiss">
+          ❌ Dismiss
+        </button>
+        <button class="btn btn-secondary" id="btn-pause" style="display: none;">
+          ⏸ Pause
+        </button>
+      </div>
+
+      <!-- Conclude Session Button -->
+      <button class="btn btn-secondary" id="btn-conclude" style="width: 100%; margin-top: 0.25rem;">
+        ⏹ Conclude Session
+      </button>
+
+    </footer>
+
+  </main>
+
+  <!-- Modal: Session Pre-Flight & Storage Verification -->
+  <div class="modal-overlay" id="passenger-modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-title">Session Pre-Flight</div>
+      <div class="modal-text">
+        Verifying local storage cache and connection before beginning your session.
+      </div>
+      <div id="passenger-sync-status" style="font-size: 0.85rem; color: #38bdf8; background: #0f172a; padding: 0.6rem; border-radius: 8px; border: 1px solid #1e293b; text-align: left; margin-bottom: 0.75rem;">
+        Checking connection and local audio cache...
+      </div>
+      <button class="btn btn-primary" id="btn-passenger-confirm" style="width: 100%;">
+        Start Session
+      </button>
+      <button class="btn btn-secondary" id="btn-passenger-bypass" style="width: 100%; margin-top: 0.6rem; background: #334155; font-size: 0.88rem; padding: 0.65rem; display: none;">
+        ⚡ Start Session Anyway (Syncs while app is open)
+      </button>
+      <div id="passenger-sync-actions" style="display: none; justify-content: space-between; align-items: center; margin-top: 0.75rem; font-size: 0.82rem; padding: 0 0.2rem;">
+        <a href="/mobile/debug.html" style="color: #38bdf8; text-decoration: underline;">🎧 Listen / Save Audio</a>
+        <button type="button" id="btn-passenger-discard-stuck" style="background: none; border: none; color: #f87171; font-size: 0.82rem; cursor: pointer; text-decoration: underline; padding: 0;">
+          Discard Stuck Upload
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Session Concluded with Upload Progress -->
+  <div class="modal-overlay" id="conclude-modal" style="display: none;">
+    <div class="modal-content" style="max-height: 90vh; overflow-y: auto;">
+      <div class="modal-title">Session Complete</div>
+      <div class="modal-text" id="conclude-summary-text">
+        Finalizing session and verifying audio transfer...
+      </div>
+
+      <!-- Live Upload Progress -->
+      <div style="background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 1rem; text-align: left;">
+        <div style="display: flex; justify-content: space-between; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.5rem;">
+          <span id="conclude-progress-label">Syncing to John's MacBook Air:</span>
+          <span id="conclude-progress-percent" style="color: #38bdf8;">0%</span>
+        </div>
+        <div style="background: #1e293b; height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 0.75rem;">
+          <div id="conclude-progress-bar" style="background: #10b981; height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+        </div>
+        <div id="conclude-live-status" style="font-size: 0.82rem; color: #38bdf8; margin-bottom: 0.75rem; font-weight: 500;">
+          Checking connection and uploading...
+        </div>
+        <div id="conclude-warning" style="background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; border-radius: 6px; padding: 0.5rem; font-size: 0.8rem; color: #fbbf24; margin-bottom: 0.75rem;">
+          ⚠️ <strong>DO NOT CLOSE SAFARI OR LOCK YOUR IPAD</strong> until all files are 100% uploaded to your Mac.
+        </div>
+        <div id="conclude-turns-list" style="font-size: 0.8rem; color: #94a3b8; max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.35rem;">
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
+        <button class="btn btn-primary" id="btn-conclude-done" style="width: 100%;" disabled>
+          Waiting for Uploads (0/0)...
+        </button>
+        <button class="btn btn-secondary" id="btn-conclude-retry" style="width: 100%; display: none; font-size: 0.85rem; background: #1e293b; border: 1px solid #3b82f6; color: #60a5fa;">
+          🔄 Force Retry Upload Now
+        </button>
+        <button class="btn btn-secondary" id="btn-conclude-offline" style="width: 100%; display: none; font-size: 0.85rem; background: #334155; border: 1px solid #475569; color: #f1f5f9;">
+          ⚠️ Appears Hung? Exit App (Audio Saved on iPad)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Saving Overlay (Hard Gate) -->
+  <div class="modal-overlay" id="saving-overlay" style="display: none; z-index: 200; background: rgba(0, 0, 0, 0.85);">
+    <div class="modal-content" style="max-width: 320px; text-align: center;">
+      <div style="font-size: 2rem;">💾</div>
+      <div class="modal-title" style="font-size: 1.15rem;">Saving Audio to iPad...</div>
+      <div class="modal-text" style="font-size: 0.85rem; color: #94a3b8;">
+        Verifying local storage write. Please do not close or switch apps.
+      </div>
+    </div>
+  </div>
+
+  <script src="/mobile/app.js"></script>
+</body>
+</html>
